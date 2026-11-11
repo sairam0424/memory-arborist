@@ -124,8 +124,10 @@ def wizard_prompt(names, notes):
         "notes). For recall give 'file' (the exact file name), 'quote' (text copied exactly from that note, %d to %d characters, "
         "containing the answer), 'must' (one to three regular expressions) and 'forbid' (usually empty). Write each key as one short distinctive word, number or name from the quote, "
         "not a phrase: an answer that paraphrases a phrase will fail it. Start each key with (?i). Keys may use only literal "
-        "characters, \\d, \\s, character classes such as [0-9], a | between alternatives, and ? after an item; no lookarounds, "
-        "anchors, backreferences, nested groups or open-ended repeats. A question must start with a letter or digit, not contain "
+        "characters, \\d, \\s, character classes such as [0-9], a | between alternatives, groups of plain alternatives such as "
+        "(redis|valkey) with nothing after the group, ? after a single character (at most twice), and \\d+ only as the very last "
+        "item; no lookarounds, anchors, backreferences, nested groups or counted repeats. Each alternative needs at least three "
+        "letters or digits that must match, two of them outside any group. A question must start with a letter or digit, not contain "
         "its own answer, end with a question mark, stay under %d characters and be answerable in one or two sentences. Prefer "
         "facts specific to this person (private names, numbers they chose, decisions with reasons) over facts any assistant "
         "already knows. Never include secrets, credentials or personal contact details. Skip notes that hold nothing worth "
@@ -514,12 +516,13 @@ def cmd_propose(args, runner):
         )
     valid, rejected = _check_all(items, notes, haystack)
     chosen = select(valid, args.target)
-    sent = sum(len(c) for c in chunks)
+    asked = [c for c, r in zip(chunks, replies) if r is not CEILING]
+    sent = sum(len(c) for c in asked)
     notes_total = len([n for n in notes if n != INDEX_NAME])
     kinds = {k: sum(1 for r, _ in chosen if r["kind"] == k) for k in KIND_ORDER}
     stats = {
         "candidates": len(items),
-        "chunks": len(chunks),
+        "chunks": len(asked),
         "cost_usd": round(spend.total, 4),
         "lane_errors": lane_errors,
         "unasked_batches": unasked,
@@ -529,7 +532,7 @@ def cmd_propose(args, runner):
     }
     print(
         "COVERAGE chunks=%d notes_sent=%d notes_total=%d"
-        % (len(chunks), sent, notes_total)
+        % (len(asked), sent, notes_total)
     )
     print(
         "PROPOSED candidates=%d valid=%d chosen=%d %s cost_usd=%.4f"
@@ -549,9 +552,19 @@ def cmd_propose(args, runner):
             + " | ".join("%s: %d" % (r, n) for r, n in sorted(rejected.items()))
         )
     mc.makedirs_private(os.path.dirname(base))
+    base = _free_base(base)  # another run may have taken this second since the check at the top
     body = proposal_text(chosen)
-    write_private(base + ".jsonl", body)
-    write_private(base + ".md", report_text(chosen, rejected, stats))
+    try:
+        write_private(base + ".jsonl", body)
+        write_private(base + ".md", report_text(chosen, rejected, stats))
+    except OSError as err:
+        mc.append_log(
+            ops,
+            "recall",
+            "wizard could not write its proposal: " + mc.clean_line(err, 100),
+            ["Model: " + args.model, "Spend: %.4f USD" % spend.total],
+        )
+        raise
     digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
     print("PROPOSAL " + base + ".jsonl")
     print("REPORT " + base + ".md")
@@ -570,6 +583,15 @@ def cmd_propose(args, runner):
         return EXIT_FLOOR
     print("NEXT read the REPORT, then: accept --file <PROPOSAL> --expect %s" % digest)
     return EXIT_OK
+
+
+def _free_base(base):
+    """`base`, or base-1, base-2 ... so that neither of the two output files exists yet."""
+    candidate, number = base, 0
+    while os.path.lexists(candidate + ".jsonl") or os.path.lexists(candidate + ".md"):
+        number += 1
+        candidate = "%s-%d" % (base, number)
+    return candidate
 
 
 def _swap_in(dest, data):
@@ -609,7 +631,9 @@ def cmd_accept(args):
             # A byte-for-byte copy, so the old set exists in two places before it is replaced.
             write_private(backup, old.read())
         print("BACKUP " + backup)
-    _swap_in(dest, data)
+        _swap_in(dest, data)
+    else:
+        write_private(dest, data)  # create-only: if a set appeared since the check above, this fails and nothing is lost
     print("ACCEPTED " + dest)
     return EXIT_OK
 

@@ -135,6 +135,7 @@ def load_questions(path, require_count=True):
 def load_questions_text(text, require_count=True):
     """The questions in one JSONL text, checked. The wizard validates the exact bytes it installs with this."""
     questions, seen = [], set()
+    text = re.sub(r"\r\n?", "\n", text)  # as a text-mode file read would, which is how the judge loads the file
     for number, raw in enumerate(io.StringIO(text), start=1):
         if not raw.strip():
             continue

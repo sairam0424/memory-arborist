@@ -95,13 +95,13 @@ class MultiEntryKeys(Rejects):
         self.rejected(
             recall(
                 question="Who looks after the on-call duty?",
-                must=["(?i)priya", "(?i)(p|pa)+ger"],
+                must=["(?i)priya", "(?i)pa(g)+er"],
             ),
-            "only ? may follow a group",
+            "open-ended repeat is only allowed",
         )
 
     def test_forbid_keys_are_held_to_the_grammar(self):  # T114
-        self.rejected(recall(forbid=["(?i)(z|zz)+qqq"]), "only ? may follow a group")
+        self.rejected(recall(forbid=["(?i)zz(q)+qq"]), "open-ended repeat is only allowed")
 
     def test_the_forbid_join_uses_a_space(self):  # T53
         item = recall(
@@ -304,7 +304,7 @@ class KeyGrammar(unittest.TestCase):
         self.assertIn(
             "repeat count is not allowed", wz.pattern_problem(r"(?i)abc\d{3,}")
         )
-        self.assertIsNone(wz.pattern_problem(r"(?i)abc\d{5}"))
+        self.assertIn("repeat count is not allowed", wz.pattern_problem(r"(?i)abc\d{5}"))
 
     def test_class_length_cap(self):  # K08 K09
         self.assertIsNone(wz.pattern_problem("(?i)xyz[" + "a" * 40 + "]"))
@@ -331,7 +331,8 @@ class KeyGrammar(unittest.TestCase):
                 )
 
     def test_a_repeat_after_a_repeat_is_refused(self):  # K14
-        self.assertIn("follows another repeat", wz.pattern_problem(r"(?i)abc\d+?x1"))
+        self.assertIn("must be the last item", wz.pattern_problem(r"(?i)abc\d+?x1"))
+        self.assertIn("follows another repeat", wz.pattern_problem(r"(?i)abc\d??x1"))
 
     def test_stray_brackets_refused(self):  # K15 K16
         self.assertIn("anchor or a stray bracket", wz.pattern_problem("(?i)priya}"))

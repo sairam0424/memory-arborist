@@ -200,14 +200,16 @@ def ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None):
         failed = mrr.failed_run_answer(stdout)  # a failed child can still have printed a result with its cost and tools
         spend.add(failed.cost if failed else 0.0)
         if failed and failed.tools:
-            spend.stop("a lane reported tools %s" % (failed.tools,))
-            raise mrr.ToolsMismatch(spend.stopped)
+            reason = "a lane reported tools %s" % (failed.tools,)
+            spend.stop(reason)
+            raise mrr.ToolsMismatch(reason)  # its own reason, even when the run had already stopped for another one
         raise mrr.AskError("claude exited with %d" % code)
     out = mrr.parse_output(stdout)
     spend.add(out.cost)
     if out.tools != []:
-        spend.stop("a lane reported tools %s" % (out.tools,))
-        raise mrr.ToolsMismatch(spend.stopped)
+        reason = "a lane reported tools %s" % (out.tools,)
+        spend.stop(reason)
+        raise mrr.ToolsMismatch(reason)
     if out.is_error:
         raise mrr.AskError("the lane reported an error")
     return out

@@ -18,7 +18,7 @@ ENGINE = os.path.join(
 WORK = "/tmp/evmut_wizard/engine"
 shutil.rmtree(os.path.dirname(WORK), ignore_errors=True)
 shutil.copytree(ENGINE, WORK, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-TARGETS = [os.path.join(WORK, "recall", name) for name in ("memory_recall_wizard.py", "memory_recall_keys.py", "memory_recall_run.py")]
+TARGETS = [os.path.join(WORK, "recall", name) for name in ("memory_recall_wizard.py", "memory_recall_keys.py", "memory_recall_run.py")] + [os.path.join(WORK, "dream", "memory_dream_lanes.py")]
 TESTS = os.path.join(WORK, "recall", "tests")
 
 M = [
@@ -42,11 +42,6 @@ M = [
         "W04 the index is a source",
         r"name == INDEX_NAME or name not in notes",
         "name not in notes",
-    ),
-    (
-        "W06 empty-matching patterns allowed",
-        r'if compiled\.search\(""\) is not None:',
-        "if False:",
     ),
     (
         "W08 pattern length uncapped",
@@ -133,53 +128,6 @@ M = [
         "if False:",
     ),
     # the key grammar
-    (
-        "G01 a group may be repeated",
-        r'if scan\.last == "group":\s*return None, "only \? may follow a group"',
-        "if False:\n        return None, ''",
-    ),
-    (
-        "G02 nested groups allowed",
-        r'if scan\.depth:\s*return None, "nested groups are not allowed"',
-        "if False:\n        return None, ''",
-    ),
-    (
-        "G03 open repeat on anything",
-        r'if scan\.last not in \("digit", "space"\):',
-        "if False:",
-    ),
-    (
-        "G04 open repeats uncapped",
-        r"if scan\.open_repeats > MAX_OPEN_REPEATS:",
-        "if False:",
-    ),
-    ("G05 groups uncapped", r"if scan\.groups > MAX_GROUPS:", "if False:"),
-    ("G06 bounded repeats uncapped", r"or scan\.bounded > MAX_BOUNDED_REPEATS", ""),
-    ("G07 repeat count uncapped", r"or high > MAX_REPEAT_COUNT", ""),
-    (
-        "G08 lookarounds and flags allowed",
-        r'if body\.startswith\("\(\?", i\):',
-        "if False:",
-    ),
-    (
-        "G09 backreferences and word escapes allowed",
-        r'if escaped in "ds":',
-        'if escaped in "dsw123456789":',
-    ),
-    ("G10 anchors allowed", r'elif c in "\^\$\]\}":', 'elif c in "]}":'),
-    ("G12 negated classes allowed", r'or inner\.startswith\("\^"\)', ""),
-    ("G13 escapes in classes allowed", r'or "\\\\" in inner', ""),
-    (
-        "G14 control characters in a key allowed",
-        r"if not plain_text\(pattern\):",
-        "if False:",
-    ),
-    (
-        "G15 compile errors not caught",
-        r"except re\.error:",
-        "except ZeroDivisionError:",
-    ),
-    ("G17 class length uncapped", r"or end - i > 41", ""),
     # choosing the set
     (
         "W20 no per-note cap",
@@ -287,11 +235,6 @@ M = [
         "see below",
     ),
     (
-        "X18 replace is not atomic",
-        r"os\.replace\(incoming, dest\)",
-        "write_private(dest, text)",
-    ),
-    (
         "X19 a missing negative question goes unmentioned",
         r'if not kinds\["negative"\]:',
         "if False:",
@@ -306,11 +249,6 @@ M = [
         r'category\(ch\)\[0\] not in "CZ"',
         'category(ch)[0] not in "X"',
     ),
-    ("G11 literal minimum dropped", r"if scan\.alt_literals < PATTERN_MIN_LITERALS:", "if False:"),
-    ("G18 alternatives are not checked one by one", r"problem = _alternative_problem\(scan\) if not scan\.depth else None", "problem = None"),
-    ("G19 group alternatives are checked like top-level ones", r"if not scan\.depth else None", "if True else None"),
-    ("G20 a plain space is not plain", r'if ch == " ":\s*return True', 'if False:\n        return True'),
-    ("G21 invisible marks are plain", r"and not mr\.is_invisible\(ch\)", ""),
     ("W39 replace makes no backup", r"write_private\(backup, old\.read\(\)\)", "pass"),
     (
         "W42 candidate flood not capped",
@@ -327,7 +265,45 @@ M = [
     ("J01 the judge cap is ten times higher", r"MAX_ANSWER_CHARS = 8_000", "MAX_ANSWER_CHARS = 80_000"),
     ("J02 the forbid check reads the whole answer", r"forbid_hit\(question, out\.text\[:MAX_ANSWER_CHARS\]\)", "forbid_hit(question, out.text)"),
     ("J03 the pass check reads the whole answer", r"grade\(question, out\.text\[:MAX_ANSWER_CHARS\]\)", "grade(question, out.text)"),
-    ("K25 the alternative count is not reset", r"scan\.alt_literals = 0\n    return None", "return None"),
+    # the key grammar
+    ("G01 empty or repeated group branches allowed", r"if any\(not b for b in lowered\) or len\(set\(lowered\)\) != len\(lowered\):", "if False:"),
+    ("G02 a branch may be the start of another", r"if any\(a != b and b\.startswith\(a\) for a in lowered for b in lowered\):", "if False:"),
+    ("G03 branches compared case-sensitively", r"lowered = \[b\.lower\(\) for b in branches\]", "lowered = list(branches)"),
+    ("G04 nested groups allowed", r'elif c == "\(":\s*return None, "nested groups are not allowed", i', 'elif c == "(":\n            current.append(c)'),
+    ("G05 any character inside a group", r"elif c in GROUP_META:", "elif False:"),
+    ("G06 any escape inside a group", r"if i \+ 1 >= len\(body\) or body\[i \+ 1\] not in ESCAPABLE:", "if i + 1 >= len(body):"),
+    ("G07 anything may follow an open-ended repeat", r'if self\.open_pending and c != "\|":', "if False:"),
+    ("G08 an alternative bar does not end the pending repeat", r"self\.last, self\.last_weight, self\.open_pending = None, 0, False", "self.last, self.last_weight = None, 0"),
+    ("G09 counted repeats allowed", r'if c == "\{":\s*return "a repeat count is not allowed"', 'if False:\n            return ""'),
+    ("G10 anchors allowed", r'if c in "\^\$\]\}":', 'if c in "]}":'),
+    ("G11 a stray closing parenthesis allowed", r'if c == "\)":\s*return "unbalanced parenthesis"', 'if False:\n            return ""'),
+    ("G12 every escape allowed", r"if escaped in ESCAPABLE:", "if True:"),
+    ("G13 escapes allowed inside classes", r'or "\\\\" in inner', ""),
+    ("G14 negated classes allowed", r'or inner\.startswith\("\^"\)', ""),
+    ("G15 groups uncapped", r"if self\.groups > MAX_GROUPS:", "if False:"),
+    ("G16 optional marks uncapped", r"if self\.optionals > MAX_OPTIONAL_MARKS:", "if False:"),
+    ("G17 open-ended repeats uncapped", r"if self\.opens > MAX_OPEN_REPEATS:", "if False:"),
+    ("G18 optional mark on anything", r'if self\.last not in \("char", "digit", "space"\):', "if False:"),
+    ("G19 open-ended repeat on anything", r'if self\.last not in \("digit", "space"\):', "if False:"),
+    ("G20 an optional character still counts as mandatory", r"self\.mandatory -= self\.last_weight", "pass"),
+    ("G21 an optional character still counts as outside", r"self\.outside -= self\.last_weight", "pass"),
+    ("G22 a group counts its longest branch", r"min\(sum\(1 for ch in b if ch\.isalnum\(\)\) for b in branches\)", "max(sum(1 for ch in b if ch.isalnum()) for b in branches)"),
+    ("G23 literals outside groups not required", r"or self\.outside < PATTERN_MIN_OUTSIDE", ""),
+    ("G24 mandatory literals not required", r"self\.mandatory < PATTERN_MIN_LITERALS", "False"),
+    ("G25 the counts are not reset for the next alternative", r"self\.mandatory = self\.outside = 0", "pass"),
+    ("G26 a non-capturing group is refused", r'if body\.startswith\("\(\?:", self\.i\):', "if False:"),
+    ("G27 group flags and lookarounds allowed", r'elif body\.startswith\("\(\?", self\.i\):', "elif False:"),
+    ("G28 compile errors not caught", r"except re\.error:", "except ZeroDivisionError:"),
+    ("G29 class length uncapped", r"or end - self\.i > 41", ""),
+    ("G30 a class may hold a bracket", r'or "\[" in inner', ""),
+    ("G31 unbalanced group at the end allowed", r'return None, "unbalanced parenthesis", i', "return branches, None, i"),
+    ("X18 replace is not atomic", r"os\.replace\(incoming, dest\)", "write_private(dest, data)"),
+    ("N09 accept may overwrite a set that appeared meanwhile", r"write_private\(dest, data\)  # create-only", "_swap_in(dest, data)  # create-only"),
+    ("N10 the proposal name may collide", r"base = _free_base\(base\)", "pass"),
+    ("N11 a failed write is not logged", r'"wizard could not write its proposal: "', '""'),
+    ("N12 coverage counts planned batches", r"asked = \[c for c, r in zip\(chunks, replies\) if r is not CEILING\]", "asked = list(chunks)"),
+    ("N13 a tools report keeps the first stop reason", r"raise mrr\.ToolsMismatch\(reason\)\n    if out\.is_error", "raise mrr.ToolsMismatch(spend.stopped)\n    if out.is_error"),
+    ("N14 the judge reads universal newlines differently", r'text = re\.sub\(r"\\r\\n\?", "\\n", text\)', "pass"),
 ]
 M = [m for m in M if len(sys.argv) < 2 or m[0].split()[0] in sys.argv[1:]]
 

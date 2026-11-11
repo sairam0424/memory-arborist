@@ -150,6 +150,7 @@ def sha16(text):
 
 class Base(TempRoot):
     def setUp(self):
+        self.addCleanup(os.umask, os.umask(0))  # with a zero umask a file created with the wrong mode shows it
         files = {
             "MEMORY.md": "# Memory Index\n"
             + "".join(
@@ -265,10 +266,10 @@ class CandidateTests(unittest.TestCase):
 
     def test_each_bad_pattern_is_refused_for_its_own_reason(self):
         cases = {
-            "(?i)(owned)?": "matches the empty text",
-            "(?i)(a|aa)+bcd": "only ? may follow a group",
+            "(?i)(owned)?": "optional mark is only allowed on a single character",
+            "(?i)(a|aa)+bcd": "start of another branch",
             "(?i)((a+))+bcd": "nested groups",
-            "(?i)(a?){30}a{30}bcd": "only ? may follow a group",
+            "(?i)(a?){30}a{30}bcd": "a group branch may hold only literal characters",
             "(?i)(?=pri)priya": "group flag, lookaround or comment",
             "(?i)(?(1)a|b)xyz": "group flag, lookaround or comment",
             "(?i)\\d(?#priya)": "group flag, lookaround or comment",
@@ -282,6 +283,8 @@ class CandidateTests(unittest.TestCase):
             "(?i)priya[\\d]": "character class that is not allowed",
             "(?i)priya[" + "a" * 45 + "]": "character class that is not allowed",
             "(?i)abc[]": "not a valid regex",
+            "(?i)abc)xyz": "unbalanced parenthesis",
+            "(?i)abc(def": "unbalanced parenthesis",
             "(?i)priya{99999999999}": "repeat count is not allowed",
             "(?i)priya+": "only allowed on a digit or a space",
             "(?i)priya.*": "only allowed on a digit or a space",
@@ -300,43 +303,71 @@ class CandidateTests(unittest.TestCase):
                 self.assertIn(label, problem)
                 self.assertTrue(self.reason(self.recall(must=[pattern])))
 
-    def test_each_grammar_cap_holds_on_its_own(self):
+    def test_each_grammar_limit_holds_on_its_own(self):
         cases = {
-            r"(?i)abc\d+\d+\d+x": "too many open-ended repeats",
+            r"(?i)abc\d+\d": "must be the last item",
+            r"(?i)abc\d+\d+": "must be the last item",
+            r"(?i)abc\d+|xyz\d+": "too many open-ended repeats",
             "(?i)(a)(b)(c)(d)xyz": "too many groups",
-            r"(?i)abc\d{1,2}\d{1,2}\d{1,2}\d{1,2}": "too many",
-            r"(?i)abc\d{1,21}": "repeat count is too large",
-            r"(?i)abc\d{3,2}": "repeat count is too large",
+            "(?i)a?b?c?xyz": "too many optional marks",
+            r"(?i)abc\d{1,2}": "repeat count is not allowed",
+            "(?i)(abc|abcd)xyz": "start of another branch",
+            "(?i)(abc|ABC)xyz": "repeated branch",
+            "(?i)(abc|)xyz": "empty branch",
+            r"(?i)priya(\d|\s)?": "a group branch may hold only literal characters",
+            "(?i)(a|b|c)(d|e|f)(g|h|i)": "too few literal",
+            "(?i)(priya|sam)": "too few literal",
+            "(?i)abc[a-z]+": "only allowed on a digit or a space",
+            "(?i)abc[a-z]?": "optional mark is only allowed on a single character",
+            "(?i)abc.?": "optional mark is only allowed on a single character",
+            "(?i)ab?c?d": "too few literal",
+            "(?i)a?b?(xyz)": "too few literal",
+            "(?i)ab(-|yzw)": "too few literal",
+            "(?i)abc*": "only allowed on a digit or a space",
+            r"(?i)abc\d+?": "must be the last item",
         }
         for pattern, label in cases.items():
             with self.subTest(pattern):
                 self.assertIn(label, wz.pattern_problem(pattern))
-        for pattern in (r"(?i)abc\d+x", "(?i)(a)(b)(c)xyz", r"(?i)abc\d{1,2}\d{1,2}\d{1,2}", r"(?i)abc\d{1,20}"):
+        for pattern in (
+            r"(?i)abc\d+",
+            "(?i)a?b?cde",
+            "(?i)(a)(b)(c)xyz",
+            "(?i)(abc|abd)xyz",
+            r"(?i)thursday|friday|abc\d+",
+            r"(?i)abc\d?\d?x",
+            "(?i)(?:redis|valkey)-new",
+        ):
             with self.subTest(pattern):
                 self.assertIsNone(wz.pattern_problem(pattern))
 
     def test_ordinary_keys_pass_the_grammar(self):
         for pattern in (
             "(?i)priya",
-            r"(?i)stg-orders-\d+x",
+            r"(?i)stg-orders-\d",
+            r"(?i)stg-orders-\d+",
             "(?i)thursday|friday",
             r"(?i)v3\.1[0-9]",
             "(?i)(redis|valkey)-new",
-            r"(?i)\d{2,3} (ms|seconds)",
-            r"(?i)exit\s*code",
-            "(?i)pager(s)?",
+            "(?i)us-east-1|eu-west-1",
+            "(?i)checkout HEAD",
+            "(?i)pagers?",
+            "(?i)exit code",
+            r"(?i)global\.anthropic",
         ):
             with self.subTest(pattern):
                 self.assertIsNone(wz.pattern_problem(pattern))
 
     def test_the_worst_keys_the_grammar_accepts_stay_fast_on_long_text(self):
-        branch = "|".join(["a"] * 17)
+        branch = "|".join("q%02d" % i for i in range(10))
         worst = [
-            ("(?i)(%s)?(%s)?(%s)?bcd" % (branch, branch, branch), "a" * 3000 + "c"),
-            (r"(?i)abc\d+x1", "abc" + "1" * 3000),
-            (r"(?i)abc\s*x1", "abc" + " " * 3000),
-            (r"(?i)\d+abc", "1" * 3000),
-            ("(?i)a{1,20}a{1,20}a{1,20}b1", "a" * 3000),
+            ("(?i)(%s)(%s)(%s)zz" % (branch, branch, branch), "q0" * 1500),
+            (r"(?i)abc\d?\d?\d+", "abc" + "1" * 3000),
+            (r"(?i)\d?\d?abc1", "1" * 3000),
+            (r"(?i)\s?\s?abc1", " " * 3000),
+            (r"(?i)abc\s+", "abc" + " " * 3000),
+            ("(?i)a?a?aaaaaaab1", "a" * 3000),
+            ("(?i)....abc1..", "q" * 3000),
         ]
         for pattern, text in worst:
             with self.subTest(pattern[:30]):
@@ -449,9 +480,11 @@ class CandidateTests(unittest.TestCase):
     def test_every_top_level_alternative_needs_literal_anchors(self):
         self.assertIn("too few literal", wz.pattern_problem("(?i)priya|\\d"))
         self.assertIn("too few literal", wz.pattern_problem("(?i)abc|"))
+        self.assertIn("literal characters", wz.pattern_problem("(?i)(priya|\\d)"))
+        self.assertIn("too few literal", wz.pattern_problem("(?i)(e|t|a)(e|t|a)(e|t|a)"))
+        self.assertIn("too few literal", wz.pattern_problem("(?i)a?b?\\d"))
         self.assertIsNone(wz.pattern_problem("(?i)thursday|friday"))
-        self.assertIsNone(wz.pattern_problem("(?i)priya(\\d|\\s)?"))
-        self.assertIn("too many open-ended", wz.pattern_problem("(?i)abc\\d+\\d+x"))
+        self.assertIsNone(wz.pattern_problem("(?i)(1|2|3)xyz"))
 
     def test_separator_and_invisible_characters_are_not_plain_text(self):
         for ch in ("\u2028", "\u2029", "\u00a0", "\ufe0f", "\u200b", "\x1b", "\ud800"):
@@ -765,6 +798,66 @@ class ProposeTests(Base):
         self.assertEqual(code, 1)
         self.assertIn("ABORTED", out)
 
+    def test_a_failed_write_is_logged_with_the_spend_and_still_raised(self):
+        with mock.patch.object(wz, "write_private", side_effect=OSError("disk full")):
+            code, _out, err, _runner = self.propose()
+        self.assertEqual(code, 1)
+        self.assertIn("ERROR", err)
+        log = th.read(os.path.join(self.ops, "log.md"))
+        self.assertIn("wizard could not write its proposal", log)
+        self.assertIn("Spend: 0.0200 USD", log)
+
+    def test_a_run_that_loses_the_race_for_its_file_name_takes_the_next_free_one(self):
+        taken = os.path.join(self.ops, "recall", "proposed", mc.utc_stamp(T0) + ".jsonl")
+        mc.makedirs_private(os.path.dirname(taken))
+        th.write(taken, "someone else's proposal\n")
+        real, seen = os.path.lexists, []
+
+        def lexists(path):
+            seen.append(path)
+            return False if len(seen) <= 2 else real(path)  # the first two calls are the early check, which the other run beat
+
+        with mock.patch.object(wz.os.path, "lexists", side_effect=lexists):
+            code, out, err, _runner = self.propose()
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(self.proposal_path(out).endswith("-1.jsonl"))
+        self.assertEqual(th.read(taken), "someone else's proposal\n")
+
+    def test_a_proposal_never_takes_the_name_of_an_existing_one(self):
+        base = os.path.join(self.ops, "recall", "proposed", "20250101T000000Z")
+        mc.makedirs_private(os.path.dirname(base))
+        self.assertEqual(wz._free_base(base), base)
+        th.write(base + ".jsonl", "x")
+        self.assertEqual(wz._free_base(base), base + "-1")
+        th.write(base + "-1.md", "x")
+        self.assertEqual(wz._free_base(base), base + "-2")
+
+    def test_a_tools_report_is_never_taken_for_a_ceiling(self):
+        spend = mrr.Spend(1.0)
+        spend.stopped = "cost ceiling reached (1.0000 of 1.0 USD)"
+        notes = {"a.md": "x" * 300}
+        settings = wz.lanes.Settings("m", 0.1)
+        with mock.patch.object(wz.lanes, "run_lane", side_effect=mrr.ToolsMismatch("a lane reported tools ['Read']")):
+            with self.assertRaises(mrr.ToolsMismatch):
+                wz._ask_chunks([["a.md"]], notes, None, settings, spend, 1)
+        with mock.patch.object(wz.lanes, "run_lane", side_effect=mrr.RunAborted("cost ceiling reached (1.0000 of 1.0 USD)")):
+            self.assertEqual(wz._ask_chunks([["a.md"]], notes, None, settings, spend, 1), [wz.CEILING])
+        spend.stopped = "something else stopped the run"
+        with mock.patch.object(wz.lanes, "run_lane", side_effect=mrr.RunAborted("something else stopped the run")):
+            with self.assertRaises(mrr.RunAborted):
+                wz._ask_chunks([["a.md"]], notes, None, settings, spend, 1)
+
+    def test_a_tools_report_that_arrives_after_a_ceiling_keeps_its_own_message(self):
+        spend = mrr.Spend(1.0)
+
+        def runner(argv, cwd, env, stdin_text):
+            spend.stop("cost ceiling reached (1.0000 of 1.0 USD)")  # the ceiling trips while this child is still running
+            return 0, lane_output("{}", 0.01, tools=["Read"]), ""
+
+        with self.assertRaises(mrr.ToolsMismatch) as caught:
+            wz.lanes.ask_lane("LANE:questions", "/nonexistent", wz.lanes.Settings("m", 0.1), runner, spend)
+        self.assertIn("a lane reported tools", str(caught.exception))
+
     def test_a_set_without_a_negative_question_says_so(self):
         recalls = ScriptedRunner(lambda names, prompt: {"questions": [q for n in names for q in recall_pair(int(re.search(r"(\d+)", n).group(1)))]})
         _code, out, _err, _runner = self.propose(runner=recalls)
@@ -806,6 +899,7 @@ class ProposeTests(Base):
         )
         self.assertEqual(len(runner.calls), 1)
         self.assertIn("CEILING the cost limit stopped 1 of 2 batches", out)
+        self.assertIn("COVERAGE chunks=1 notes_sent=10 notes_total=14", out)
         self.assertNotIn("ABORTED", out)
         self.assertEqual(code, 3)  # 20 questions from one batch: short of 25, but paid for and kept
         self.assertTrue(os.path.isfile(self.proposal_path(out)))
@@ -996,6 +1090,30 @@ class AcceptTests(Base):
             th.read(os.path.join(os.path.dirname(self.dest), backups[0])), "mine\n"
         )
         self.assertEqual(th.read(self.dest), th.read(self.proposal))
+
+    def test_a_set_that_appears_after_the_check_is_never_overwritten(self):
+        mc.makedirs_private(os.path.dirname(self.dest))
+        th.write(self.dest, "mine\n")
+        real = os.path.lexists
+        with mock.patch.object(wz.os.path, "lexists", side_effect=lambda p: False if str(p).endswith("questions.jsonl") else real(p)):
+            code, _out, err, _ = self.accept()
+        self.assertEqual(code, 1)
+        self.assertIn("ERROR", err)
+        self.assertEqual(th.read(self.dest), "mine\n")
+
+    def test_validation_agrees_with_the_judge_on_a_bare_carriage_return(self):
+        lines = th.read(self.proposal).splitlines(True)
+        broken = lines[0].replace('", "', '",\r "', 1)
+        self.assertNotEqual(broken, lines[0])
+        edited = broken + "".join(lines[1:])
+        with open(self.proposal, "w", encoding="utf-8", newline="") as fh:
+            fh.write(edited)
+        with self.assertRaises(mc.HygieneError):
+            mrr.load_questions(self.proposal)  # the judge reads files in universal-newline mode
+        code, _out, err, _ = self.accept(expect=sha16(edited))
+        self.assertEqual(code, 1)
+        self.assertIn("not valid JSON", err)
+        self.assertFalse(os.path.exists(self.dest))
 
     def test_the_installed_bytes_are_the_validated_bytes(self):
         with mock.patch.object(mrr, "load_questions", side_effect=AssertionError("the path loader must not be used")):
