@@ -1,0 +1,12 @@
+{
+  "name": "memory-shepherd",
+  "description": "A memory upgrade for your Claude Code harness.",
+  "owner": { "name": "sairam0424" },
+  "plugins": [
+    {
+      "name": "memory-shepherd",
+      "source": "./",
+      "description": "A memory upgrade for your Claude Code harness: verified snapshots, safe clean-up of stale notes, an outside recall check and a diff you approve."
+    }
+  ]
+}

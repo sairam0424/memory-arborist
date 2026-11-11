@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests (${{ matrix.os }}, python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Safety net, release guard and session-start hook
+        working-directory: engine
+        run: python -I -m unittest discover -s tests -p 'test_memory_*.py'
+      - name: Recall judge
+        working-directory: engine
+        run: python -I -m unittest discover -s recall/tests -p 'test_memory_recall*.py'
+      - name: Dream pipeline
+        working-directory: engine
+        run: python -I -m unittest discover -s dream/tests -p 'test_dream_*.py'
+
+  dco:
+    name: sign-off check
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Every commit carries a Signed-off-by line
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          missing=0
+          for sha in $(git rev-list --no-merges "origin/${BASE_REF}..HEAD"); do
+            if ! git log -1 --format=%B "$sha" | grep -q '^Signed-off-by: '; then
+              echo "missing sign-off: $sha"
+              missing=1
+            fi
+          done
+          exit "$missing"

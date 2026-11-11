@@ -1,0 +1,16 @@
+# Keeps the pinned GitHub Actions current. Dependabot's own pull requests are not held to the sign-off check (a bot cannot
+# sign a commit off); they only move action pins, which the test jobs still exercise.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"

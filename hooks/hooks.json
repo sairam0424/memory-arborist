@@ -1,0 +1,17 @@
+{
+  "description": "Tells the session when MEMORY.md is close to its documented read limit. Read-only: it prints one fixed two-sentence message with four numbers filled in, only when the index is nearly full, and never edits anything.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["-B", "-I", "${CLAUDE_PLUGIN_ROOT}/engine/memory_headroom_nudge.py"],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
