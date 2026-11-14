@@ -328,7 +328,7 @@ class DigestTests(Base):
             "observer": [
                 user("hello there friend", cwd="/Users/x/.claude-mem/observer-sessions")
             ],
-            "marker": basic_session() + [user("running MEMORY-SHEPHERD-RUN now")],
+            "marker": basic_session() + [user("running MEMORY-ARBORIST-RUN now")],
             "empty": [tool_result("only a tool result")],
         }
         for number, (reason, records) in enumerate(cases.items(), start=1):

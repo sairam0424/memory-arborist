@@ -390,7 +390,7 @@ def build_parser():
     parser.add_argument(
         "--ops-root",
         default=None,
-        help="data root for backups, logs, digests and baselines (default <Claude config dir>/memory-shepherd, normally ~/.claude/memory-shepherd)",
+        help="data root for backups, logs, digests and baselines (default <Claude config dir>/memory-arborist, normally ~/.claude/memory-arborist)",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
     pin = sub.add_parser("pin", help="create pinned.txt (the index lines a dream run must not edit)")

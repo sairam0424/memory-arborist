@@ -1,6 +1,6 @@
-# memory-shepherd
+# memory-arborist
 
-**A memory upgrade for your Claude Code harness.** memory-shepherd is a Claude Code plugin that looks after the auto-memory directory (`MEMORY.md` plus one note per topic). It backs the memory up, tells you when the index is filling up, cleans out stale and contradicted notes using what you actually said in past sessions, and checks that the clean-up did not make Claude forget anything. It never changes your memory behind your back: every edit is shown to you as a diff and installed only after you say yes, and any change can be restored from a snapshot.
+**A memory upgrade for your Claude Code harness.** memory-arborist is a Claude Code plugin that looks after the auto-memory directory (`MEMORY.md` plus one note per topic). It backs the memory up, tells you when the index is filling up, cleans out stale and contradicted notes using what you actually said in past sessions, and checks that the clean-up did not make Claude forget anything. It never changes your memory behind your back: every edit is shown to you as a diff and installed only after you say yes, and any change can be restored from a snapshot.
 
 **What you get**
 
@@ -19,11 +19,11 @@ Under the hood it is a skill, a session-start hook and a Python standard-library
 Once the repository is public:
 
 ```
-claude plugin marketplace add sairam0424/memory-shepherd
-claude plugin install memory-shepherd@memory-shepherd
+claude plugin marketplace add sairam0424/memory-arborist
+claude plugin install memory-arborist@memory-arborist
 ```
 
-Then ask Claude to run the `memory-shepherd:shepherd` skill ("consolidate my memory"). The plugin also adds a read-only `SessionStart` hook that tells the session when `MEMORY.md` is close to Claude Code's documented read limit. It prints nothing until the index is within about 1,500 characters or 20 lines of the linter's warning levels; then it prints one fixed two-sentence message with four numbers filled in (no note text, no paths) that tells the model to inform you and not to act unless you ask.
+Then ask Claude to run the `memory-arborist:tend` skill ("consolidate my memory"). The plugin also adds a read-only `SessionStart` hook that tells the session when `MEMORY.md` is close to Claude Code's documented read limit. It prints nothing until the index is within about 1,500 characters or 20 lines of the linter's warning levels; then it prints one fixed two-sentence message with four numbers filled in (no note text, no paths) that tells the model to inform you and not to act unless you ask.
 
 ## What it does
 
@@ -42,7 +42,7 @@ The lanes run `claude --safe-mode --tools ""`: no built-in tools, and `--safe-mo
 
 The lanes, the question wizard and the judge send note text, and the lanes also send redacted transcript excerpts, to the model provider your `claude` CLI is configured for. Redaction is best effort and fails closed on cue words, but it **cannot** catch: rot13 or base85 text, look-alike characters, a bare random string shorter than 32 characters with no cue word, bare UUIDs, bare hex of 32 to 63 characters, or any secret that has no recognisable shape. Read `SECURITY.md` before you run it on a memory directory that holds anything you would not send to your provider.
 
-Each digest also carries the session's working-directory path, and a judge question appears in the process list for the duration of its call. Children get only `PATH`, `HOME`, `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_DEFAULT_REGION` and `AWS_PROFILE`. If you authenticate with an API key variable, list its name in `MEMORY_SHEPHERD_PASS_ENV`; its value then goes to the child and the provider.
+Each digest also carries the session's working-directory path, and a judge question appears in the process list for the duration of its call. Children get only `PATH`, `HOME`, `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_DEFAULT_REGION` and `AWS_PROFILE`. If you authenticate with an API key variable, list its name in `MEMORY_ARBORIST_PASS_ENV`; its value then goes to the child and the provider.
 
 ## Secret shapes are checked before anything is sent
 
@@ -52,14 +52,14 @@ Before a lane or the judge sends any note text to your provider, `memory_egress.
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `MEMORY_SHEPHERD_MEMORY_DIR` | memory directory the commands work on, overriding detection (the session-start hook ignores it; evidence reads transcripts from the directory's parent) | the current project's `~/.claude/projects/<project>/memory` |
-| `MEMORY_SHEPHERD_HOME` | where snapshots, logs, digests, baselines and staged runs live (same filesystem as the memory directory) | `<Claude config dir>/memory-shepherd`, normally `~/.claude/memory-shepherd` |
-| `MEMORY_SHEPHERD_CLAUDE_HOME` | the Claude Code configuration directory | Claude Code's own `CLAUDE_CONFIG_DIR` if set, else `~/.claude` |
-| `MEMORY_SHEPHERD_LANE_MODEL` | model for the proposal lanes | `sonnet` |
-| `MEMORY_SHEPHERD_JUDGE_MODEL` | model for the recall judge | `haiku` |
-| `MEMORY_SHEPHERD_PASS_ENV` | comma-separated variable names to forward to the children | none |
+| `MEMORY_ARBORIST_MEMORY_DIR` | memory directory the commands work on, overriding detection (the session-start hook ignores it; evidence reads transcripts from the directory's parent) | the current project's `~/.claude/projects/<project>/memory` |
+| `MEMORY_ARBORIST_HOME` | where snapshots, logs, digests, baselines and staged runs live (same filesystem as the memory directory) | `<Claude config dir>/memory-arborist`, normally `~/.claude/memory-arborist` |
+| `MEMORY_ARBORIST_CLAUDE_HOME` | the Claude Code configuration directory | Claude Code's own `CLAUDE_CONFIG_DIR` if set, else `~/.claude` |
+| `MEMORY_ARBORIST_LANE_MODEL` | model for the proposal lanes | `sonnet` |
+| `MEMORY_ARBORIST_JUDGE_MODEL` | model for the recall judge | `haiku` |
+| `MEMORY_ARBORIST_PASS_ENV` | comma-separated variable names to forward to the children | none |
 
-`CLAUDE_CONFIG_DIR` is followed because Claude Code documents it as moving every `~/.claude` path; this tool's data root moves with it. After you set it, keep using your old data with `MEMORY_SHEPHERD_HOME=<old data root>` rather than moving snapshots (a moved snapshot no longer matches its recorded source and later snapshots and restores refuse it); only `pinned.txt` and `recall/questions.jsonl` are safe to copy. The headless children do not receive it, so if a child needs it to find your credentials, list `CLAUDE_CONFIG_DIR` in `MEMORY_SHEPHERD_PASS_ENV`. `CLAUDE_CODE_PROJECT_DIR_NAME` and the `autoMemoryDirectory` setting are not read; point `MEMORY_SHEPHERD_MEMORY_DIR` at that directory.
+`CLAUDE_CONFIG_DIR` is followed because Claude Code documents it as moving every `~/.claude` path; this tool's data root moves with it. After you set it, keep using your old data with `MEMORY_ARBORIST_HOME=<old data root>` rather than moving snapshots (a moved snapshot no longer matches its recorded source and later snapshots and restores refuse it); only `pinned.txt` and `recall/questions.jsonl` are safe to copy. The headless children do not receive it, so if a child needs it to find your credentials, list `CLAUDE_CONFIG_DIR` in `MEMORY_ARBORIST_PASS_ENV`. `CLAUDE_CODE_PROJECT_DIR_NAME` and the `autoMemoryDirectory` setting are not read; point `MEMORY_ARBORIST_MEMORY_DIR` at that directory.
 
 Model aliases resolve to different versions on different providers, so a recall baseline is only comparable with runs on the same provider. Pin a full model id in the two model variables for reproducible baselines.
 
@@ -80,4 +80,4 @@ python3 -I -m unittest discover -s dream/tests -p 'test_dream_*.py'
 
 ## Not affiliated
 
-memory-shepherd is an independent project. It is not made, endorsed or supported by Anthropic. "Claude" and "Claude Code" are names used by Anthropic, PBC (see its Trademark Guidelines at https://www.anthropic.com/legal/trademark-guidelines) and appear here only to say which tool this works with. Licensed under Apache-2.0 (see `LICENSE` and `NOTICE`).
+memory-arborist is an independent project. It is not made, endorsed or supported by Anthropic. "Claude" and "Claude Code" are names used by Anthropic, PBC (see its Trademark Guidelines at https://www.anthropic.com/legal/trademark-guidelines) and appear here only to say which tool this works with. Licensed under Apache-2.0 (see `LICENSE` and `NOTICE`).

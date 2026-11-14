@@ -1,4 +1,4 @@
-"""PreToolUse hook: makes Claude Code ask the person before a memory-shepherd command that changes the live notes.
+"""PreToolUse hook: makes Claude Code ask the person before a memory-arborist command that changes the live notes.
 
 It recognises the plain commands the skill runs: `memory_dream.py ... promote ... --apply`, `memory_hygiene.py ... restore ...
 --apply`, and any memory_*.py command given `--allow-secret-shapes` (which sends notes the secret scan refused). For those it
@@ -25,7 +25,7 @@ sys.dont_write_bytecode = True  # a hook writes nothing, not even bytecode
 MAX_STDIN_CHARS = 1 << 20
 STDIN_WAIT_SECONDS = 1.0
 REASON = (
-    "memory-shepherd is about to change your live memory notes, or to send notes that hold secret-shaped text. "
+    "memory-arborist is about to change your live memory notes, or to send notes that hold secret-shaped text. "
     "Go ahead only if you reviewed the diff and the digest it shows."
 )
 SEGMENT = r"[^|;&\n]*"  # both words must sit in the same shell command, not in two commands of one line

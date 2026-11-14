@@ -40,7 +40,7 @@ INDEX_MAX_LINES, INDEX_MAX_UTF16 = 200, 25000
 CALL_TIMEOUT_SECONDS = 240
 MAX_ANSWER_CHARS = 8_000  # graded text: a key runs against at most this much of an answer, whatever the child returns
 EXCERPT_CHARS = 200
-ENV_JUDGE_MODEL = "MEMORY_SHEPHERD_JUDGE_MODEL"
+ENV_JUDGE_MODEL = "MEMORY_ARBORIST_JUDGE_MODEL"
 # An alias, not a provider-specific id: aliases resolve to different model versions per provider (Anthropic API, Bedrock,
 # Vertex, Foundry), so a baseline is only comparable with runs on the same provider. Pin a full model id for reproducibility.
 DEFAULT_MODEL = os.environ.get(ENV_JUDGE_MODEL) or "haiku"
@@ -224,13 +224,13 @@ def build_argv(question_text, model, prompt_file, memory_dir, per_q_usd):
     ]
 
 
-ENV_PASS = "MEMORY_SHEPHERD_PASS_ENV"
+ENV_PASS = "MEMORY_ARBORIST_PASS_ENV"
 MAX_PASS_NAMES = 32
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 
 
 def child_env(environ=None):
-    """The environment a headless child gets: a short fixed list, plus the variable NAMES the user listed in MEMORY_SHEPHERD_PASS_ENV.
+    """The environment a headless child gets: a short fixed list, plus the variable NAMES the user listed in MEMORY_ARBORIST_PASS_ENV.
 
     Passing more is an explicit opt-in (for example the variable that holds an API key); the listed values go to the child and
     from there to the model provider, so only list what that session needs. Malformed names and anything past the first 32

@@ -1,9 +1,9 @@
 {
-  "name": "memory-shepherd",
+  "name": "memory-arborist",
   "version": "0.1.0",
   "description": "A memory upgrade for your Claude Code harness: verified snapshots, safe clean-up of the auto-memory directory from your past sessions, an outside recall check, and a diff you approve before anything changes.",
   "author": { "name": "sairam0424" },
   "license": "Apache-2.0",
-  "repository": "https://github.com/sairam0424/memory-shepherd",
+  "repository": "https://github.com/sairam0424/memory-arborist",
   "keywords": ["memory", "claude-code", "auto-memory", "consolidation", "safety"]
 }

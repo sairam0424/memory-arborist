@@ -10,21 +10,21 @@ Public sources (docs/PROVENANCE.md lists them all): the auto-memory directory is
 Observed, not documented: how non-ASCII characters are counted (each UTF-16 code unit that is not an ASCII letter or digit
 becomes one '-'), and that a linked worktree uses the main work tree's path. Known limits: a name over 200 characters is not
 found here; the autoMemoryDirectory setting is not read (settings can hold secrets). CLAUDE_CONFIG_DIR, documented on
-the sessions page, is followed (MEMORY_SHEPHERD_CLAUDE_HOME overrides it), and this tool's own data root moves with it. The
+the sessions page, is followed (MEMORY_ARBORIST_CLAUDE_HOME overrides it), and this tool's own data root moves with it. The
 headless children do not receive CLAUDE_CONFIG_DIR. CLAUDE_CODE_PROJECT_DIR_NAME, which names the project directory when
-CLAUDE_CONFIG_DIR is also set, is not read: point MEMORY_SHEPHERD_MEMORY_DIR at that directory instead.
+CLAUDE_CONFIG_DIR is also set, is not read: point MEMORY_ARBORIST_MEMORY_DIR at that directory instead.
 
 Environment (all optional):
-    MEMORY_SHEPHERD_MEMORY_DIR   memory directory to work on, overriding detection
-    MEMORY_SHEPHERD_HOME         where backups, logs, digests and baselines live (default <claude home>/memory-shepherd)
-    MEMORY_SHEPHERD_CLAUDE_HOME  the Claude Code configuration directory (default CLAUDE_CONFIG_DIR, else ~/.claude)
+    MEMORY_ARBORIST_MEMORY_DIR   memory directory to work on, overriding detection
+    MEMORY_ARBORIST_HOME         where backups, logs, digests and baselines live (default <claude home>/memory-arborist)
+    MEMORY_ARBORIST_CLAUDE_HOME  the Claude Code configuration directory (default CLAUDE_CONFIG_DIR, else ~/.claude)
 """
 
 import os
 
-ENV_MEMORY_DIR = "MEMORY_SHEPHERD_MEMORY_DIR"
-ENV_HOME = "MEMORY_SHEPHERD_HOME"
-ENV_CLAUDE_HOME = "MEMORY_SHEPHERD_CLAUDE_HOME"
+ENV_MEMORY_DIR = "MEMORY_ARBORIST_MEMORY_DIR"
+ENV_HOME = "MEMORY_ARBORIST_HOME"
+ENV_CLAUDE_HOME = "MEMORY_ARBORIST_CLAUDE_HOME"
 ENV_CLAUDE_CONFIG = "CLAUDE_CONFIG_DIR"  # documented by Claude Code (sessions page): it moves every ~/.claude path
 MAX_SLUG_CHARS = 200
 MAX_WALK_LEVELS = 64
@@ -54,7 +54,7 @@ def default_ops_root(environ=None):
     """Where this toolkit keeps its own data. Outside any plugin folder, so it survives an uninstall."""
     env = os.environ if environ is None else environ
     return _expand(
-        env.get(ENV_HOME) or os.path.join(claude_home(environ), "memory-shepherd")
+        env.get(ENV_HOME) or os.path.join(claude_home(environ), "memory-arborist")
     )
 
 

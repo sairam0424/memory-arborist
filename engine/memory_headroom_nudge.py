@@ -5,7 +5,7 @@ fixed two-sentence message with four numbers filled in (no index text, no paths)
 user asks. It is empty unless the index is within about 1,500 characters or 20 lines of lint's own warning levels. Every
 failure is silent: this program always exits 0, writes no file (not even bytecode) and never waits more than a second for
 stdin. Known limits are those of memory_locate (a project directory name over 200 characters, the autoMemoryDirectory
-setting and CLAUDE_CODE_PROJECT_DIR_NAME are not read; CLAUDE_CONFIG_DIR is followed), and MEMORY_SHEPHERD_MEMORY_DIR is ignored here (the hook follows the session's working directory); the thresholds are this tool's own, not Claude Code's.
+setting and CLAUDE_CODE_PROJECT_DIR_NAME are not read; CLAUDE_CONFIG_DIR is followed), and MEMORY_ARBORIST_MEMORY_DIR is ignored here (the hook follows the session's working directory); the thresholds are this tool's own, not Claude Code's.
 
     hook:    python3 -B -I ${CLAUDE_PLUGIN_ROOT}/engine/memory_headroom_nudge.py     (reads the hook JSON on stdin; uses its "cwd")
     manual:  python3 -B -I engine/memory_headroom_nudge.py --dir <memory dir>
@@ -69,7 +69,7 @@ def nudge_line(memory_dir):
         return None
     return (
         "Memory index is %s%d characters and %d lines (Claude Code's documented read limit is 200 lines or 25KB; lint warns at %d characters and %d lines). "
-        "Tell the user it is getting full and suggest the memory-shepherd:shepherd skill, memory_hygiene.py lint or hand-trimming; "
+        "Tell the user it is getting full and suggest the memory-arborist:tend skill, memory_hygiene.py lint or hand-trimming; "
         "do not run any of them unless the user asks."
         % (
             "at least " if truncated else "",

@@ -183,7 +183,7 @@ class LoginEnvTests(unittest.TestCase):
         for name in ("ANTHROPIC_API_KEY", "HTTPS_PROXY", "ANTHROPIC_BASE_URL"):
             self.assertIn(name, warn.detail)
         self.assertIn(
-            "MEMORY_SHEPHERD_PASS_ENV=ANTHROPIC_API_KEY,ANTHROPIC_BASE_URL,HTTPS_PROXY",
+            "MEMORY_ARBORIST_PASS_ENV=ANTHROPIC_API_KEY,ANTHROPIC_BASE_URL,HTTPS_PROXY",
             warn.fix,
         )
         self.assertIn("secrets", warn.fix)
@@ -237,7 +237,7 @@ class DirectoryChecksTests(unittest.TestCase):
     def test_a_missing_memory_directory_is_a_failure_with_the_fix(self):
         checks = doc.check_dirs(os.path.join(self.mem, "nope"), self.root, self.ops)
         self.assertEqual(statuses(checks), [doc.FAIL])
-        self.assertIn("MEMORY_SHEPHERD_MEMORY_DIR", checks[0].fix)
+        self.assertIn("MEMORY_ARBORIST_MEMORY_DIR", checks[0].fix)
 
     def test_a_data_root_on_another_filesystem_is_a_warning(self):
         real_stat = os.stat

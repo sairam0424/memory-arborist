@@ -369,7 +369,7 @@ def build_parser():
     p.add_argument(
         "--ops-root",
         default=None,
-        help="data root for backups, logs, digests and baselines (default <Claude config dir>/memory-shepherd, normally ~/.claude/memory-shepherd)",
+        help="data root for backups, logs, digests and baselines (default <Claude config dir>/memory-arborist, normally ~/.claude/memory-arborist)",
     )
     p.add_argument(
         "--staged-dir", default=None, help="memory directory to test for --arm staged"

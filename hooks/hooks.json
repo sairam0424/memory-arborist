@@ -1,5 +1,5 @@
 {
-  "description": "SessionStart: tells the session when MEMORY.md is close to its documented read limit (read-only: one fixed two-sentence message with four numbers, only when the index is nearly full). PreToolUse: asks you to confirm before a memory-shepherd command that changes your live notes (promote --apply, restore --apply) or sends notes the secret scan refused (--allow-secret-shapes). Neither hook edits anything, and the confirmation hook never denies, it only asks.",
+  "description": "SessionStart: tells the session when MEMORY.md is close to its documented read limit (read-only: one fixed two-sentence message with four numbers, only when the index is nearly full). PreToolUse: asks you to confirm before a memory-arborist command that changes your live notes (promote --apply, restore --apply) or sends notes the secret scan refused (--allow-secret-shapes). Neither hook edits anything, and the confirmation hook never denies, it only asks.",
   "hooks": {
     "SessionStart": [
       {

@@ -2,7 +2,7 @@
 
 Home paths are always checked. The deny-list (personal, employer and project names, and names of undocumented Claude Code
 internals) is NOT in this repository: it is read from the git-ignored file `.release-guard-words` at the repository root
-(one word or phrase per line, `#` starts a comment), or from the path in MEMORY_SHEPHERD_RELEASE_GUARD_WORDS. Without that
+(one word or phrase per line, `#` starts a comment), or from the path in MEMORY_ARBORIST_RELEASE_GUARD_WORDS. Without that
 file, as in CI, only the generic rules run, and a note on stderr says so. If this test fails, remove the string (use neutral
 fixtures such as Acme and /Users/example); never add an exception.
 """
@@ -34,14 +34,14 @@ MUST_BE_SCANNED = (
     "README.md",
     "SECURITY.md",
     "hooks/hooks.json",
-    "skills/shepherd/SKILL.md",
+    "skills/tend/SKILL.md",
     ".claude-plugin/plugin.json",
     "engine/memory_scan.py",
     "engine/tests/test_memory_release_hygiene.py",
 )
 
 PRIVATE_WORDS_NAME = ".release-guard-words"
-PRIVATE_WORDS_FILE = os.environ.get("MEMORY_SHEPHERD_RELEASE_GUARD_WORDS") or os.path.join(REPO, PRIVATE_WORDS_NAME)
+PRIVATE_WORDS_FILE = os.environ.get("MEMORY_ARBORIST_RELEASE_GUARD_WORDS") or os.path.join(REPO, PRIVATE_WORDS_NAME)
 
 
 def read_private_words(path=None):

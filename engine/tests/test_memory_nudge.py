@@ -108,7 +108,7 @@ class MessageTests(TempRoot):
 
     def test_the_message_names_only_things_this_package_ships_and_no_unit_it_cannot_source(self):
         line = nudge.nudge_line(memory_with(index_with_chars(19000)))
-        self.assertIn("memory-shepherd:shepherd", line)
+        self.assertIn("memory-arborist:tend", line)
         self.assertNotIn("/memory-dream", line)
         self.assertNotIn("loader caps", line)
         self.assertIn("documented read limit", line)
@@ -300,7 +300,7 @@ class LocateTests(TempRoot):
         plain = th.make_dir({})
         memory = os.path.join(claude, "projects", nudge._project_slug(plain), "memory")
         os.makedirs(memory)
-        with mock.patch.dict(os.environ, {"MEMORY_SHEPHERD_CLAUDE_HOME": claude}):
+        with mock.patch.dict(os.environ, {"MEMORY_ARBORIST_CLAUDE_HOME": claude}):
             self.assertEqual(nudge.memory_dir_for_cwd(plain), memory)
 
     def test_unusual_or_missing_working_directories_find_nothing(self):

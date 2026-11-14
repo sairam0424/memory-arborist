@@ -32,7 +32,7 @@ import memory_evidence as me  # noqa: E402
 import memory_recall_run as mrr  # noqa: E402
 import memory_snapshot as sn  # noqa: E402
 
-ENV_LANE_MODEL = "MEMORY_SHEPHERD_LANE_MODEL"
+ENV_LANE_MODEL = "MEMORY_ARBORIST_LANE_MODEL"
 # An alias, see memory_recall_run.DEFAULT_MODEL: it resolves per provider. Pin a full model id with the environment variable.
 DEFAULT_MODEL = os.environ.get(ENV_LANE_MODEL) or "sonnet"
 DIGESTS_PER_LANE, MAX_NOTES, MAX_FINDINGS_PER_LANE = 6, 12, 5

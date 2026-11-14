@@ -8,18 +8,18 @@ All notable changes are listed here. The format follows Keep a Changelog; versio
 - First public extraction of the engine: safety net (snapshot, verify, restore, lint, secret scan, compare, log, prune plan), redacted evidence digests, an outside recall judge, tool-less proposal lanes with mechanical grounding, staged runs with digest-bound promote, and a read-only session-start headroom hook.
 - Recall-question wizard (`recall/memory_recall_wizard.py`, key grammar in `recall/memory_recall_keys.py`): tool-less children propose questions from the snapshot's notes; every candidate is checked against the notes (literal quote, keys in a safe regex grammar that match the quote and neither the question nor their own answer, absent probe words for negative questions); the proposal and a report are written outside the memory directory, and `accept` installs exactly the bytes whose digest the user passes.
 - The recall judge grades at most the first 8,000 characters of an answer, so a key cannot be made to run on an unbounded text.
-- Claude Code plugin package (`.claude-plugin/`, `skills/shepherd/`, `hooks/hooks.json`) and a single-plugin marketplace file.
-- `doctor/memory_doctor.py`: a free first-run check of Python, Claude Code (version floors 2.1.139 for the hook and 2.1.169 for the model-backed half, and every flag the engine passes), the login-route variables that are set but not passed to the children (with the exact `MEMORY_SHEPHERD_PASS_ENV` line), the memory directory, the data root (same filesystem as the notes) and the first-run files. Its output holds names and counts only. `--live` makes one real call capped at 0.05 USD to prove the login and the output format; `--version` prints the plugin version.
+- Claude Code plugin package (`.claude-plugin/`, `skills/tend/`, `hooks/hooks.json`) and a single-plugin marketplace file.
+- `doctor/memory_doctor.py`: a free first-run check of Python, Claude Code (version floors 2.1.139 for the hook and 2.1.169 for the model-backed half, and every flag the engine passes), the login-route variables that are set but not passed to the children (with the exact `MEMORY_ARBORIST_PASS_ENV` line), the memory directory, the data root (same filesystem as the notes) and the first-run files. Its output holds names and counts only. `--live` makes one real call capped at 0.05 USD to prove the login and the output format; `--version` prints the plugin version.
 - `memory_dream.py pin --none | --all`: creates `pinned.txt` (create-only, private mode, counts not text), because nothing created it before and the dream run stopped at a dead end on a first run.
 - A PreToolUse confirmation hook (`memory_confirm_gate.py`): Claude Code asks the person before `memory_dream.py promote --apply`, `memory_hygiene.py restore --apply` and any `memory_*.py` command given `--allow-secret-shapes`. It never denies and never edits; it cannot ask in bypass-permissions mode and it matches the command text only.
 - Every paid command prints an `ESTIMATE` line (calls, cap per call, run ceiling) before its first model call, and the skill is `disable-model-invocation`: it starts only when the person types it, and it asks for a yes before each paid step.
 - Release guard test that fails when a home path, or a word from the maintainer's private deny-list (kept in a git-ignored file, not in the repository), appears in the content or the name of any non-binary file (LICENSE, NOTICE and .gitignore included).
 
 ### Changed
-- Model choices are provider-neutral aliases (`sonnet`, `haiku`) overridable with `MEMORY_SHEPHERD_LANE_MODEL` and `MEMORY_SHEPHERD_JUDGE_MODEL`.
-- Children receive a fixed short environment plus the names listed in `MEMORY_SHEPHERD_PASS_ENV`.
+- Model choices are provider-neutral aliases (`sonnet`, `haiku`) overridable with `MEMORY_ARBORIST_LANE_MODEL` and `MEMORY_ARBORIST_JUDGE_MODEL`.
+- Children receive a fixed short environment plus the names listed in `MEMORY_ARBORIST_PASS_ENV`.
 - The lint tripwire now only warns when the markdown file count drops below the last snapshot's (`memory-shrink-tripwire`).
-- The evidence builder's run marker is `MEMORY-SHEPHERD-RUN`.
+- The evidence builder's run marker is `MEMORY-ARBORIST-RUN`.
 
 - `memory_egress.py`: a gate in front of every call that sends note text to the provider. A fresh scan of the notes the model can read refuses the run (exit 4) on a block-tier secret shape or an unscannable entry; `--allow-secret-shapes` overrides it for one run.
 - Staging refuses a dream edit that adds a YAML hazard to a note's name or description (`yaml-*` findings), counted per file so a hazard the snapshot already had never blocks.

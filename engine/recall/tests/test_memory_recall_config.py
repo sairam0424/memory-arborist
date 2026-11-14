@@ -19,7 +19,7 @@ class PassThroughTests(unittest.TestCase):
         env = mrr.child_env(
             dict(
                 BASE,
-                MEMORY_SHEPHERD_PASS_ENV="API_TOKEN_X, PROXY_URL ",
+                MEMORY_ARBORIST_PASS_ENV="API_TOKEN_X, PROXY_URL ",
                 API_TOKEN_X="a",
                 PROXY_URL="p",
                 UNLISTED_Y="no",
@@ -35,19 +35,19 @@ class PassThroughTests(unittest.TestCase):
 
     def test_the_pass_through_variable_itself_is_never_forwarded(self):
         env = mrr.child_env(
-            dict(BASE, MEMORY_SHEPHERD_PASS_ENV="API_TOKEN_X", API_TOKEN_X="a")
+            dict(BASE, MEMORY_ARBORIST_PASS_ENV="API_TOKEN_X", API_TOKEN_X="a")
         )
-        self.assertNotIn("MEMORY_SHEPHERD_PASS_ENV", env)
+        self.assertNotIn("MEMORY_ARBORIST_PASS_ENV", env)
 
     def test_the_pass_through_variable_is_not_forwarded_even_when_it_lists_itself(self):
         env = mrr.child_env(
             dict(
                 BASE,
-                MEMORY_SHEPHERD_PASS_ENV="MEMORY_SHEPHERD_PASS_ENV,API_TOKEN_X",
+                MEMORY_ARBORIST_PASS_ENV="MEMORY_ARBORIST_PASS_ENV,API_TOKEN_X",
                 API_TOKEN_X="a",
             )
         )
-        self.assertNotIn("MEMORY_SHEPHERD_PASS_ENV", env)
+        self.assertNotIn("MEMORY_ARBORIST_PASS_ENV", env)
         self.assertEqual(env["API_TOKEN_X"], "a")
 
     def test_malformed_names_are_ignored(self):
@@ -63,7 +63,7 @@ class PassThroughTests(unittest.TestCase):
             "-dash",
         ]
         source = dict(
-            BASE, MEMORY_SHEPHERD_PASS_ENV=",".join(bad) + ",GOOD_NAME", GOOD_NAME="ok"
+            BASE, MEMORY_ARBORIST_PASS_ENV=",".join(bad) + ",GOOD_NAME", GOOD_NAME="ok"
         )
         for name in bad:
             source[name] = "leak"
@@ -73,12 +73,12 @@ class PassThroughTests(unittest.TestCase):
 
     def test_names_that_are_not_set_are_skipped_silently(self):
         self.assertEqual(
-            mrr.child_env(dict(BASE, MEMORY_SHEPHERD_PASS_ENV="NOT_SET_AT_ALL")), BASE
+            mrr.child_env(dict(BASE, MEMORY_ARBORIST_PASS_ENV="NOT_SET_AT_ALL")), BASE
         )
 
     def test_only_the_first_32_entries_are_honoured(self):
         names = ["VAR_%d" % i for i in range(40)]
-        source = dict(BASE, MEMORY_SHEPHERD_PASS_ENV=",".join(names))
+        source = dict(BASE, MEMORY_ARBORIST_PASS_ENV=",".join(names))
         source.update({n: "v" for n in names})
         env = mrr.child_env(source)
         self.assertEqual(len([k for k in env if k.startswith("VAR_")]), 32)
@@ -111,14 +111,14 @@ class ModelDefaultTests(unittest.TestCase):
     def test_the_environment_can_pin_a_full_model_id(self):
         self.assertEqual(
             self.default_model(
-                {"MEMORY_SHEPHERD_JUDGE_MODEL": "some-provider.model-id-1"}
+                {"MEMORY_ARBORIST_JUDGE_MODEL": "some-provider.model-id-1"}
             ),
             "some-provider.model-id-1",
         )
 
     def test_an_empty_override_falls_back_to_the_alias(self):
         self.assertEqual(
-            self.default_model({"MEMORY_SHEPHERD_JUDGE_MODEL": ""}), "haiku"
+            self.default_model({"MEMORY_ARBORIST_JUDGE_MODEL": ""}), "haiku"
         )
 
 

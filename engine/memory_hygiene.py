@@ -267,7 +267,7 @@ def _add_common(parser_cls):
     common.add_argument(
         "--ops-root",
         default=argparse.SUPPRESS,
-        help="data root for backups, logs, digests and baselines (default <Claude config dir>/memory-shepherd, normally ~/.claude/memory-shepherd)",
+        help="data root for backups, logs, digests and baselines (default <Claude config dir>/memory-arborist, normally ~/.claude/memory-arborist)",
     )
     return common
 
@@ -334,7 +334,7 @@ def build_parser():
     parser.add_argument(
         "--ops-root",
         default=None,
-        help="data root for backups, logs, digests and baselines (default <Claude config dir>/memory-shepherd, normally ~/.claude/memory-shepherd)",
+        help="data root for backups, logs, digests and baselines (default <Claude config dir>/memory-arborist, normally ~/.claude/memory-arborist)",
     )
     _register_commands(
         parser.add_subparsers(dest="cmd", required=True), _add_common(_Parser)

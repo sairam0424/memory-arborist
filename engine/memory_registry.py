@@ -32,7 +32,7 @@ def ops_lock(ops):
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            raise HygieneError("another memory-shepherd run holds the lock")
+            raise HygieneError("another memory-arborist run holds the lock")
         yield
     finally:
         handle.close()

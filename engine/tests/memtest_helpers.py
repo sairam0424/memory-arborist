@@ -1,4 +1,4 @@
-"""Shared fixtures for the memory-shepherd tests. Fake credentials are assembled at runtime."""
+"""Shared fixtures for the memory-arborist tests. Fake credentials are assembled at runtime."""
 
 import atexit
 import os

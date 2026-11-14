@@ -94,7 +94,7 @@ class HomeAndRootTests(TempRoot):
     ):
         self.assertEqual(
             loc.default_ops_root({loc.ENV_CLAUDE_HOME: "/opt/cc"}),
-            "/opt/cc/memory-shepherd",
+            "/opt/cc/memory-arborist",
         )
         self.assertEqual(
             loc.default_ops_root(
@@ -107,7 +107,7 @@ class HomeAndRootTests(TempRoot):
         )
         self.assertEqual(
             loc.default_ops_root({loc.ENV_HOME: ""}),
-            os.path.join(os.path.expanduser("~/.claude"), "memory-shepherd"),
+            os.path.join(os.path.expanduser("~/.claude"), "memory-arborist"),
         )
 
     def test_relative_overrides_become_absolute(self):
@@ -322,7 +322,7 @@ class ImportTimeTests(TempRoot):
             {loc.ENV_CLAUDE_HOME: claude, loc.ENV_MEMORY_DIR: "/data/mem"},
             tempfile.gettempdir(),
         ).split("\n")
-        self.assertEqual(out, [os.path.join(claude, "memory-shepherd"), "/data/mem"])
+        self.assertEqual(out, [os.path.join(claude, "memory-arborist"), "/data/mem"])
 
     def test_the_common_module_finds_the_repository_memory_from_a_subdirectory(self):
         repo = repo_with_subdir()
@@ -427,7 +427,7 @@ class ConfigDirTests(unittest.TestCase):
         self.assertEqual(loc.claude_home({"CLAUDE_CONFIG_DIR": "/srv/cfg"}), "/srv/cfg")
 
     def test_the_toolkit_override_wins_over_claude_codes_variable(self):
-        env = {"MEMORY_SHEPHERD_CLAUDE_HOME": "/srv/mine", "CLAUDE_CONFIG_DIR": "/srv/cfg"}
+        env = {"MEMORY_ARBORIST_CLAUDE_HOME": "/srv/mine", "CLAUDE_CONFIG_DIR": "/srv/cfg"}
         self.assertEqual(loc.claude_home(env), "/srv/mine")
 
     def test_an_empty_value_counts_as_unset(self):
@@ -440,8 +440,8 @@ class ConfigDirTests(unittest.TestCase):
     def test_the_projects_root_and_the_data_root_follow_it(self):
         env = {"CLAUDE_CONFIG_DIR": "/srv/cfg"}
         self.assertEqual(loc.projects_root(env), "/srv/cfg/projects")
-        self.assertEqual(loc.default_ops_root(env), "/srv/cfg/memory-shepherd")
-        self.assertEqual(loc.default_ops_root(dict(env, MEMORY_SHEPHERD_HOME="/srv/data")), "/srv/data")
+        self.assertEqual(loc.default_ops_root(env), "/srv/cfg/memory-arborist")
+        self.assertEqual(loc.default_ops_root(dict(env, MEMORY_ARBORIST_HOME="/srv/data")), "/srv/data")
 
     def test_the_default_memory_directory_is_found_under_the_relocated_config(self):
         repo = repo_with_subdir()
@@ -460,7 +460,7 @@ class DeletedWorkingDirectoryTests(unittest.TestCase):
             % (gone, gone, th.SCRIPTS)
         )
         env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/nonexistent-home",
-               "MEMORY_SHEPHERD_HOME": "relative-data", "MEMORY_SHEPHERD_MEMORY_DIR": "relative-mem"}
+               "MEMORY_ARBORIST_HOME": "relative-data", "MEMORY_ARBORIST_MEMORY_DIR": "relative-mem"}
         done = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, env=env, timeout=60)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.strip(), "True True")

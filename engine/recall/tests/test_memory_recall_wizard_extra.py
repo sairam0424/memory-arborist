@@ -378,7 +378,7 @@ class ParserDefaults(unittest.TestCase):
             "import sys; sys.path.insert(0, %r); import memory_recall_wizard as w; print(w.DEFAULT_MODEL)"
             % os.path.join(engine, "recall")
         )
-        env = dict(os.environ, MEMORY_SHEPHERD_LANE_MODEL="pinned-model-x")
+        env = dict(os.environ, MEMORY_ARBORIST_LANE_MODEL="pinned-model-x")
         done = subprocess.run(
             [sys.executable, "-I", "-c", code], env=env, capture_output=True, text=True
         )

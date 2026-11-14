@@ -38,7 +38,7 @@ HOOK_MIN, MODEL_MIN = (
 )  # the session-start hook; --safe-mode for the model-backed half
 PROBE_TIMEOUT_SECONDS = 20
 LIVE_PROBE_USD = 0.05
-ENV_LANE_MODEL = "MEMORY_SHEPHERD_LANE_MODEL"
+ENV_LANE_MODEL = "MEMORY_ARBORIST_LANE_MODEL"
 REQUIRED_FLAGS = (
     "--safe-mode",
     "--print",
@@ -101,16 +101,16 @@ def tilde(path):
 
 
 def plugin_info():
-    """(name, version) from the plugin manifest next to the engine, or ('memory-shepherd', 'unknown')."""
+    """(name, version) from the plugin manifest next to the engine, or ('memory-arborist', 'unknown')."""
     manifest = os.path.join(os.path.dirname(SCRIPTS), ".claude-plugin", "plugin.json")
     try:
         with open(manifest, encoding="utf-8") as fh:
             data = json.load(fh)
-        return str(data.get("name") or "memory-shepherd"), str(
+        return str(data.get("name") or "memory-arborist"), str(
             data.get("version") or "unknown"
         )
     except (OSError, ValueError):
-        return "memory-shepherd", "unknown"
+        return "memory-arborist", "unknown"
 
 
 def parse_version(text):
@@ -285,7 +285,7 @@ def check_dirs(memory_dir, ops_root, ops):
                 FAIL,
                 "memory",
                 "directory not found: " + memory_text,
-                "pass --dir, or set MEMORY_SHEPHERD_MEMORY_DIR; Claude Code creates it on its first memory write",
+                "pass --dir, or set MEMORY_ARBORIST_MEMORY_DIR; Claude Code creates it on its first memory write",
             )
         ]
     try:
@@ -515,7 +515,7 @@ def build_parser():
     parser.add_argument(
         "--ops-root",
         default=None,
-        help="data root (default: <Claude config dir>/memory-shepherd)",
+        help="data root (default: <Claude config dir>/memory-arborist)",
     )
     parser.add_argument(
         "--live",

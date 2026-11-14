@@ -1178,15 +1178,15 @@ class ParserTests(unittest.TestCase):
                     wz.build_parser().parse_args(["propose", abbreviation])
 
     def test_the_environment_does_not_switch_the_override_on(self):
-        saved = os.environ.get("MEMORY_SHEPHERD_ALLOW_SECRET_SHAPES")
-        os.environ["MEMORY_SHEPHERD_ALLOW_SECRET_SHAPES"] = "1"
+        saved = os.environ.get("MEMORY_ARBORIST_ALLOW_SECRET_SHAPES")
+        os.environ["MEMORY_ARBORIST_ALLOW_SECRET_SHAPES"] = "1"
         try:
             args = wz.build_parser().parse_args(["propose"])
         finally:
             if saved is None:
-                del os.environ["MEMORY_SHEPHERD_ALLOW_SECRET_SHAPES"]
+                del os.environ["MEMORY_ARBORIST_ALLOW_SECRET_SHAPES"]
             else:
-                os.environ["MEMORY_SHEPHERD_ALLOW_SECRET_SHAPES"] = saved
+                os.environ["MEMORY_ARBORIST_ALLOW_SECRET_SHAPES"] = saved
         self.assertFalse(args.allow_secret_shapes)
 
     def test_accept_requires_both_the_file_and_the_digest(self):

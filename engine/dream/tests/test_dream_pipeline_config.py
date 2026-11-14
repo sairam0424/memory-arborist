@@ -34,14 +34,14 @@ class LaneModelTests(unittest.TestCase):
     def test_the_environment_can_pin_a_full_model_id(self):
         self.assertEqual(
             self.default_model(
-                {"MEMORY_SHEPHERD_LANE_MODEL": "some-provider.model-id-2"}
+                {"MEMORY_ARBORIST_LANE_MODEL": "some-provider.model-id-2"}
             ),
             "some-provider.model-id-2",
         )
 
     def test_an_empty_override_falls_back_to_the_alias(self):
         self.assertEqual(
-            self.default_model({"MEMORY_SHEPHERD_LANE_MODEL": ""}), "sonnet"
+            self.default_model({"MEMORY_ARBORIST_LANE_MODEL": ""}), "sonnet"
         )
 
 

@@ -2,7 +2,7 @@
 
 The outside recall judge asks a fixed set of questions of fresh `claude` children that are given Read, Grep and Glob and pointed at your memory directory (your Claude Code permission rules still apply to them), and grades each answer with regular expressions. It tells you whether a staged edit made the memory worse (a regression) or brought back a fact you had replaced (a resurrection). The question wizard (below) can propose most of the file for you to read and accept; you add the questions only you can know (stale facts, replaced values) by hand.
 
-**File:** `<data root>/<project>/recall/questions.jsonl` (the data root is `~/.claude/memory-shepherd`, or under `CLAUDE_CONFIG_DIR`, unless `MEMORY_SHEPHERD_HOME` is set; `--questions` points the judge at another file). One JSON object per line, 25 to 32 questions, unique `id`s.
+**File:** `<data root>/<project>/recall/questions.jsonl` (the data root is `~/.claude/memory-arborist`, or under `CLAUDE_CONFIG_DIR`, unless `MEMORY_ARBORIST_HOME` is set; `--questions` points the judge at another file). One JSON object per line, 25 to 32 questions, unique `id`s.
 
 | Field | Required | Meaning |
 |---|---|---|

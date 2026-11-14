@@ -38,7 +38,7 @@ import memory_redact as mr  # noqa: E402
 import memory_snapshot as sn  # noqa: E402
 
 EXIT_OK, EXIT_FAIL, EXIT_FLOOR = 0, 1, 3
-ENV_LANE_MODEL = "MEMORY_SHEPHERD_LANE_MODEL"
+ENV_LANE_MODEL = "MEMORY_ARBORIST_LANE_MODEL"
 # An alias, see memory_recall_run.DEFAULT_MODEL: it resolves per provider. Pin a full model id with the environment variable.
 DEFAULT_MODEL = os.environ.get(ENV_LANE_MODEL) or "sonnet"
 INDEX_NAME = "MEMORY.md"

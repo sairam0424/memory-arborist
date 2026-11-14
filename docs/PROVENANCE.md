@@ -1,6 +1,6 @@
 # Provenance of the Claude Code facts this project relies on
 
-memory-shepherd works on files and commands that belong to Claude Code. This page says, for each thing the code or the documentation states about Claude Code, where it comes from: a public documentation page, the output of `claude --help`, behaviour you can observe in your own sessions, or an assumption with no public source. Everything else in the repository is this project's own design.
+memory-arborist works on files and commands that belong to Claude Code. This page says, for each thing the code or the documentation states about Claude Code, where it comes from: a public documentation page, the output of `claude --help`, behaviour you can observe in your own sessions, or an assumption with no public source. Everything else in the repository is this project's own design.
 
 **Method.** On 2026-11-10 the code, skill, hook file and docs were audited in ten lanes. Each lane's mapper agent could read only this repository, fetch public web pages and run `claude --help`; it listed every dependency and classified it. A second, independent verifier agent then tried to refute each classification. Afterwards every quote classed as a public-doc source was fetched again by a script and kept in section 1 only if it appears verbatim on the cited page (130 of 148 did; the rest are listed in section 6). A person has spot-checked the credential-shape sources in section 5; the rest of this page has not had a line-by-line human review. Pages change, so a source can drift: if a row is wrong, open an issue.
 
@@ -16,7 +16,7 @@ Quote fidelity was checked mechanically against the cited page on 2026-11-10.
 | File | What the code relies on | Source |
 |---|---|---|
 | `README.md` | Auto memory is a directory of `MEMORY.md` (index) plus topic files, one per memory; 'Claude Code auto-memory' is Claude Code's own term. (Note files carry a `type` frontmatter key with value… | https://code.claude.com/docs/en/memory.md |
-| `README.md` | Plugin skills are invoked under the plugin-name prefix, so the skill is `memory-shepherd:shepherd`. | https://code.claude.com/docs/en/plugins-reference |
+| `README.md` | Plugin skills are invoked under the plugin-name prefix, so the skill is `memory-arborist:tend`. | https://code.claude.com/docs/en/plugins-reference |
 | `README.md` | README describes the SessionStart hook as showing 'how close MEMORY.md is to Claude Code's load cap'. The cap is the first 200 lines or 25KB of MEMORY.md (see the hooks.json line 2 entry for… | https://code.claude.com/docs/en/memory.md |
 | `README.md` | 'A run aborts if a lane ever reports using a tool' relies on Claude Code's -p output exposing tool use (tool_use blocks, permission_denials) in json or stream-json output. | https://code.claude.com/docs/en/headless.md |
 | `README.md` | The child environment names CLAUDE_CODE_USE_BEDROCK, AWS_REGION, AWS_DEFAULT_REGION and AWS_PROFILE are real (region order: AWS_REGION, then AWS_DEFAULT_REGION, then the profile's region; pr… | https://code.claude.com/docs/en/amazon-bedrock.md |
@@ -29,7 +29,7 @@ Quote fidelity was checked mechanically against the cited page on 2026-11-10.
 | `SECURITY.md` | 'Nothing in the memory directory is written except by promote --apply and restore --apply' is true of this plugin only. Claude Code itself writes auto-memory files during any normal session,… | https://code.claude.com/docs/en/memory.md |
 | `SECURITY.md` | A project-level Claude Code settings file can set environment variables, and a -p session loads project settings even in an untrusted folder, which is the basis of the advice not to run a se… | https://code.claude.com/docs/en/claude-directory.md |
 | `SECURITY.md` | The per-lane, per-question and total cost ceilings rely on `--max-budget-usd`, which is a client-side estimate that can be passed. | https://code.claude.com/docs/en/cli-reference.md |
-| `SKILL.md` | SKILL.md frontmatter keys `name` and `description` are read by Claude Code; `name` defaults to the directory name (skills/shepherd), and the plugin name prefixes it so the skill is invoked a… | https://code.claude.com/docs/en/skills.md |
+| `SKILL.md` | SKILL.md frontmatter keys `name` and `description` are read by Claude Code; `name` defaults to the directory name (skills/tend), and the plugin name prefixes it so the skill is invoked a… | https://code.claude.com/docs/en/skills.md |
 | `SKILL.md` | Placeholder `&lt;this session id>` for `--exclude-session`. Claude Code exposes `${CLAUDE_SESSION_ID}` for substitution in skill content, which would fill it in automatically. The numbers 60… | https://code.claude.com/docs/en/skills.md |
 | `SKILL.md` | Transcripts are at ~/.claude/projects/&lt;project>/&lt;session>.jsonl, one directory deeper than the glob `~/.claude/projects/*.jsonl` in the hard rule. Related files that can hold residual… | https://code.claude.com/docs/en/claude-directory.md |
 | `SKILL.md` | `compatibility` is a recognised SKILL.md frontmatter key (string, up to 500 characters). Claude Code accepts it but does not enforce it, so the 'python3 3.9+, claude CLI, macOS and Linux onl… | https://code.claude.com/docs/en/skills.md |
@@ -43,7 +43,7 @@ Quote fidelity was checked mechanically against the cited page on 2026-11-10.
 | `hooks.json` | Command hooks support exec form: `command` is the executable and `args` the argument vector, with `${CLAUDE_PLUGIN_ROOT}` expanded in both. No page states the Claude Code version that introd… | https://code.claude.com/docs/en/plugins-reference |
 | `hooks.json` | Hook `timeout` is in seconds (5 here). | https://code.claude.com/docs/en/hooks.md |
 | `marketplace.json` | marketplace.json requires `name`, `owner` (object with `name`) and a `plugins` array; each entry needs `name` and `source`. | https://code.claude.com/docs/en/plugins/create-marketplace.md |
-| `marketplace.json` | An entry with `"source": "./"` names the repository root as the plugin, in the same repository as plugin.json, and the entry `name` must equal the plugin.json name (both are memory-shepherd)… | https://code.claude.com/docs/en/plugins/publish.md |
+| `marketplace.json` | An entry with `"source": "./"` names the repository root as the plugin, in the same repository as plugin.json, and the entry `name` must equal the plugin.json name (both are memory-arborist)… | https://code.claude.com/docs/en/plugins/publish.md |
 | `marketplace.json` | Marketplace-level and entry-level `description` fields are supported and shown when browsing the marketplace in /plugin. | https://code.claude.com/docs/en/plugins/create-marketplace.md |
 | `memory_common.py` | slug_for assumes the layout &lt;projects>/&lt;slug>/memory, so the project folder is the parent of the memory directory. | https://code.claude.com/docs/en/memory |
 | `memory_common.py` | Memory notes are plain markdown files, so list_md selects files ending in .md. | https://code.claude.com/docs/en/memory |
@@ -52,7 +52,7 @@ Quote fidelity was checked mechanically against the cited page on 2026-11-10.
 | `memory_digest.py` | Hook feedback shows up in the transcript with the label 'Stop hook feedback', so user text starting with that label is not human. | https://code.claude.com/docs/en/hooks |
 | `memory_digest.py` | A session's id is the file stem of &lt;session-id>.jsonl, and it is a lowercase hex UUID (8-4-4-4-12). Files that do not match are skipped as 'not_uuid'. | https://code.claude.com/docs/en/sessions |
 | `memory_dream.py` | The default memory directory ('this project's') is Claude Code's per-project auto memory directory, ~/.claude/projects/&lt;project>/memory/, derived from the git repository. Both the default… | https://code.claude.com/docs/en/memory |
-| `memory_dream.py` | The default data root for backups, logs, digests and run directories is ~/.claude/memory-shepherd, a folder the project adds inside Claude Code's config directory. This assumes Claude Code l… | https://code.claude.com/docs/en/claude-directory |
+| `memory_dream.py` | The default data root for backups, logs, digests and run directories is ~/.claude/memory-arborist, a folder the project adds inside Claude Code's config directory. This assumes Claude Code l… | https://code.claude.com/docs/en/claude-directory |
 | `memory_dream.py` | A live note can change while a promote runs, because Claude Code reads and writes memory files during a session. This is why promote re-hashes each live note right before replacing it, and a… | https://code.claude.com/docs/en/memory |
 | `memory_dream_canary.py` | A project's auto memory lives at projects/&lt;project>/memory/ under the config dir, and &lt;project> is the working directory path with non-alphanumeric characters replaced by '-' (the fixt… | https://code.claude.com/docs/en/memory |
 | `memory_dream_ground.py` | MEMORY.md is the index file inside the auto memory directory, and it is the only note that gets index_edit hunks (every other note is edited with `edit`). | https://code.claude.com/docs/en/memory |
@@ -94,7 +94,7 @@ Quote fidelity was checked mechanically against the cited page on 2026-11-10.
 | `memory_headroom_nudge.py` | Same stale statement in the hook docstring: CLAUDE_CODE_PROJECT_DIR_NAME exact meaning 'is not in the verified docs'. | https://code.claude.com/docs/en/sessions |
 | `memory_hygiene.py` | Claude Code has a feature called auto memory, in which Claude writes its own notes to a per-project directory; the toolkit's whole purpose is a safety net around that directory. | https://code.claude.com/docs/en/memory |
 | `memory_hygiene.py` | The default --dir is the project's auto-memory directory, ~/.claude/projects/&lt;project>/memory/, where &lt;project> is derived from the git repository (worktrees and subdirectories share o… | https://code.claude.com/docs/en/memory |
-| `memory_hygiene.py` | The --ops-root help hard-codes the default ~/.claude/memory-shepherd, which assumes the Claude configuration directory is ~/.claude. Claude Code lets a user move that directory with the docu… | https://code.claude.com/docs/en/sessions |
+| `memory_hygiene.py` | The --ops-root help hard-codes the default ~/.claude/memory-arborist, which assumes the Claude configuration directory is ~/.claude. Claude Code lets a user move that directory with the docu… | https://code.claude.com/docs/en/sessions |
 | `memory_hygiene.py` | Ops data (snapshots, log.md) is filed under &lt;ops-root>/&lt;slug>, where the slug is the folder name that owns the memory directory (mc.slug_for takes the parent folder's name, i.e. &lt;pr… | https://code.claude.com/docs/en/memory |
 | `memory_hygiene.py` | Memory notes are markdown files with the .md extension (MEMORY.md plus one topic file per memory), so the shrink tripwire can count .md files in the last snapshot. | https://code.claude.com/docs/en/memory |
 | `memory_hygiene.py` | The parent folder of the memory directory is the Claude Code project directory that also holds the session transcripts &lt;session-id>.jsonl. cmd_lint passes it as project_dir so memory_lint… | https://code.claude.com/docs/en/sessions |
@@ -141,7 +141,7 @@ Quote fidelity was checked mechanically against the cited page on 2026-11-10.
 | `memory_snapshot.py` | The files in the memory directory are called 'notes'. Claude Code's own docs use the same word for what auto memory stores. | https://code.claude.com/docs/en/memory |
 | `memory_snapshot.py` | The memory directory's identity is its resolved path, stored as manifest 'source' and compared on later snapshots and restores. This relies on Claude Code deriving the per-project directory… | https://code.claude.com/docs/en/memory |
 | `memory_snapshot.py` | Restore stages a hidden .restore-*.part file inside the live memory directory (needed for an atomic same-filesystem replace). This assumes a transient extra file there is harmless to a live… | https://code.claude.com/docs/en/memory |
-| `plugin.json` | `name` is the only required plugin.json field; it must be kebab-case, and names starting with claude-, anthropic-, anthropics- or cc-plugin- are rejected. `memory-shepherd` passes. | https://code.claude.com/docs/en/plugins-reference |
+| `plugin.json` | `name` is the only required plugin.json field; it must be kebab-case, and names starting with claude-, anthropic-, anthropics- or cc-plugin- are rejected. `memory-arborist` passes. | https://code.claude.com/docs/en/plugins-reference |
 | `plugin.json` | Setting `version` pins users to it until it changes, so a release without a bump is not delivered by `claude plugin update`. | https://code.claude.com/docs/en/plugins-reference |
 | `plugin.json` | `author` is an object whose `name` is required, with optional `email` and `url`. | https://code.claude.com/docs/en/plugins-reference |
 | `plugin.json` | `license` takes an SPDX id such as Apache-2.0, `repository` is a plain URL string, `keywords` is an array of strings. | https://code.claude.com/docs/en/plugins-reference |
@@ -236,7 +236,7 @@ These are this tool's own policy or reading, kept because they are conservative.
 Further gaps that are known and not yet handled:
 
 - Concurrency: up to four `claude -p` children run at once and share one home directory and its Claude Code state file; no public page says whether that is safe. Each child may also write local Claude Code state (for example history or project entries) even with `--no-session-persistence`; this has not been diffed.
-- Environment: `--safe-mode` children get a fixed environment (see the README). Whether a child still reads the user-level settings `env` block, or credential helpers configured there, is not documented, so a provider set up only through settings may need `MEMORY_SHEPHERD_PASS_ENV` or may not work.
+- Environment: `--safe-mode` children get a fixed environment (see the README). Whether a child still reads the user-level settings `env` block, or credential helpers configured there, is not documented, so a provider set up only through settings may need `MEMORY_ARBORIST_PASS_ENV` or may not work.
 - Cost accounting: a failed child counts the cost it printed and a timed-out child is charged its per-call cap (an assumed charge, not billed spend); a child that fails without printing a result counts nothing. What exit code and output a run gives when `--max-budget-usd` is hit is not documented.
 - Installing hunks: `promote` swaps files inside the live memory directory while a session may be running; no page says how Claude Code writes or watches memory files.
 - The `originSessionId` frontmatter key that the linter checks, and the assumption that `entrypoint` is the same for a whole transcript file, are observations from the author's own files.
@@ -274,8 +274,8 @@ The claim may still be right; the quoted sentence was not found on the cited pag
 | File | Claim | Note |
 |---|---|---|
 | `README.md` | The README names the `claude` CLI as a requirement without a minimum Claude Code version, but the plugin relies on `--safe-mode` and on exec-form hook `args`. No fetched… | no page cited |
-| `README.md` | `MEMORY_SHEPHERD_CLAUDE_HOME` defaults to `~/.claude`, but Claude Code moves every ~/.claude path when `CLAUDE_CONFIG_DIR` is set (now followed). | quote not found on the cited page |
-| `SKILL.md` | A session that invoked this skill carries the skill's text in its transcript, so the evidence builder can skip it by finding the MEMORY-SHEPHERD-RUN marker in a session f… | no page cited |
+| `README.md` | `MEMORY_ARBORIST_CLAUDE_HOME` defaults to `~/.claude`, but Claude Code moves every ~/.claude path when `CLAUDE_CONFIG_DIR` is set (now followed). | quote not found on the cited page |
+| `SKILL.md` | A session that invoked this skill carries the skill's text in its transcript, so the evidence builder can skip it by finding the MEMORY-ARBORIST-RUN marker in a session f… | no page cited |
 | `memory_compare.py` | Lines starting with 'modified:' are exempt from the lost-line comparison, implying a volatile 'modified:' key in notes. | no page cited |
 | `memory_digest.py` | Tool results appear as content blocks with `type == "tool_result"`. | quote not found on the cited page |
 | `memory_digest.py` | message.content is either a string or a list of blocks, and a text block is {"type": "text", "text": str}. Other block types (tool_use, thinking, images) are ignored. | quote not found on the cited page |
@@ -296,6 +296,6 @@ The claim may still be right; the quoted sentence was not found on the cited pag
 
 - Comments in `MEMORY.md`: the linter removes every `<!-- -->` span before it counts; Claude Code's docs say block-level comments are stripped, so the linter can under-count.
 - Only a flat memory directory is understood; links that contain `/` or `:` are ignored.
-- `CLAUDE_CONFIG_DIR` is followed (this tool's data root moves with it; the headless children do not receive it). `CLAUDE_CODE_PROJECT_DIR_NAME` and the `autoMemoryDirectory` setting are not read; use `MEMORY_SHEPHERD_MEMORY_DIR`.
-- Child processes get a fixed environment (Bedrock variables, `PATH`, `HOME`); other providers need `MEMORY_SHEPHERD_PASS_ENV`.
+- `CLAUDE_CONFIG_DIR` is followed (this tool's data root moves with it; the headless children do not receive it). `CLAUDE_CODE_PROJECT_DIR_NAME` and the `autoMemoryDirectory` setting are not read; use `MEMORY_ARBORIST_MEMORY_DIR`.
+- Child processes get a fixed environment (Bedrock variables, `PATH`, `HOME`); other providers need `MEMORY_ARBORIST_PASS_ENV`.
 - The README states the version this was developed against; nothing older is tested.

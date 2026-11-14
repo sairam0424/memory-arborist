@@ -1,4 +1,4 @@
-"""Shared helpers for the memory-shepherd scripts. Standard library only; run through python3 -I.
+"""Shared helpers for the memory-arborist scripts. Standard library only; run through python3 -I.
 
 Safety contract: nothing in memory_*.py deletes files. The only move primitive is os.replace, and
 tests pin exactly which functions may call it (atomic writes, archiving, restore).
