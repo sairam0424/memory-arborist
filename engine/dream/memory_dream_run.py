@@ -5,7 +5,8 @@ Standard library only; run as python3 -I. The lanes only ever see the evidence d
 they are asked about. What they return is a proposal: memory_dream.py ground checks it mechanically and stages it
 outside the memory directory, and a person reads the report before anything is promoted. Nothing here edits memory.
 Exit codes: 0 ok; 1 failure or failed staging checks; 2 usage (argparse); 4 refused before any model call because the
-snapshot holds block-tier secret shapes (override: --allow-secret-shapes).
+snapshot holds block-tier secret shapes (override: --allow-secret-shapes); 5 the run finished but some model calls failed
+(the staged report starts with INCOMPLETE: no hunks then does not mean nothing needed changing).
 """
 
 import argparse
@@ -38,6 +39,7 @@ DIGESTS_PER_LANE, MAX_NOTES, MAX_FINDINGS_PER_LANE = 6, 12, 5
 # One writer may hand on at most this many hunks (half of memory_dream.DEFAULT_MAX_HUNKS): every hunk costs a paid
 # verifier call, so an injected note or digest must not be able to turn one writer reply into a flood of them.
 MAX_HUNKS_PER_WRITER = 5
+EXIT_INCOMPLETE = 5
 INDEX_NAME = "MEMORY.md"
 NOTE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.md")
 PipelineResult = namedtuple("PipelineResult", "hunks stats trace")
@@ -256,6 +258,7 @@ def _verified_snapshot(ops, args):
 
 def cmd_run(args, runner):
     memory, ops = dr._paths(args)
+    dr._load_pinned(ops, args.pinned_draft_ok)  # a missing pinned.txt is found now, not after the paid lanes have run
     snap = _verified_snapshot(ops, args)
     spend = mrr.Spend(args.total_max_usd)
     try:
@@ -284,6 +287,12 @@ def cmd_run(args, runner):
             s["cost"],
         )
     )
+    incomplete = s["lane_errors"]
+    if incomplete:
+        print(
+            "INCOMPLETE %d model call(s) failed (see the LANE-ERROR lines above): this run may be missing proposals, so "
+            "'accepted 0' does not mean there was nothing to change" % incomplete
+        )
     path = write_hunks_file(ops, result.hunks, args.now)
     print("HUNKS " + path)
     print("TRACE " + write_hunks_file(ops, result.trace, args.now, ".trace.json"))
@@ -306,7 +315,10 @@ def cmd_run(args, runner):
     ]
     if args.pinned_draft_ok:
         ground_args.append("--pinned-draft-ok")
-    return dr.main(ground_args)
+    if incomplete:
+        ground_args += ["--incomplete", str(incomplete)]
+    code = dr.main(ground_args)
+    return EXIT_INCOMPLETE if code == dr.EXIT_OK and incomplete else code
 
 
 def build_parser():

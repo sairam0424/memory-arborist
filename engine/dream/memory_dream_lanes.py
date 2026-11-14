@@ -187,7 +187,7 @@ def ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None):
     spend.check()
     cwd = cwd or os.path.dirname(system_prompt_file)
     try:
-        code, stdout, _stderr = runner(
+        code, stdout, stderr = runner(
             build_argv(settings.model, system_prompt_file, settings.per_q_usd),
             cwd,
             mrr.child_env(),
@@ -203,7 +203,7 @@ def ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None):
             reason = "a lane reported tools %s" % (failed.tools,)
             spend.stop(reason)
             raise mrr.ToolsMismatch(reason)  # its own reason, even when the run had already stopped for another one
-        raise mrr.AskError("claude exited with %d" % code)
+        raise mrr.AskError(mrr.failure_message(code, stdout, stderr))
     out = mrr.parse_output(stdout)
     spend.add(out.cost)
     if out.tools != []:

@@ -16,15 +16,33 @@ LEAK = th.fake_github_token()
 class EgressTests(Base):
     def setUp(self):
         super().setUp()
-        th.write(os.path.join(self.ops, "pinned.txt"), "- [Style](feedback-style.md) how to answer\n")
-        with open(os.path.join(self.mem, "feedback-other.md"), "a", encoding="utf-8") as fh:
+        th.write(
+            os.path.join(self.ops, "pinned.txt"),
+            "- [Style](feedback-style.md) how to answer\n",
+        )
+        with open(
+            os.path.join(self.mem, "feedback-other.md"), "a", encoding="utf-8"
+        ) as fh:
             fh.write("\nthe key is %s\n" % LEAK)
         self.leaky = sn.take_snapshot(self.mem, self.ops, now=T0 + 10)["id"]
 
     def main(self, *extra, snapshot=None):
-        runner = ScriptedRunner()
+        runner = ScriptedRunner(
+            finder={"findings": []}
+        )  # a clean answer: a failed lane now ends the run with exit 5
         out, err = io.StringIO(), io.StringIO()
-        argv = ["--dir", self.mem, "--ops-root", self.root, "run", "--snapshot", snapshot or self.leaky, "--workers", "1", *extra]
+        argv = [
+            "--dir",
+            self.mem,
+            "--ops-root",
+            self.root,
+            "run",
+            "--snapshot",
+            snapshot or self.leaky,
+            "--workers",
+            "1",
+            *extra,
+        ]
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = run.main(argv, runner=runner)
         return code, out.getvalue(), err.getvalue(), runner
@@ -49,7 +67,9 @@ class EgressTests(Base):
         self.assertTrue(runner.calls)
 
     def test_a_damaged_snapshot_is_reported_as_damaged_not_as_a_refusal(self):
-        damaged = os.path.join(self.ops, "snapshots", self.leaky, "memory", "project-deploys.md")
+        damaged = os.path.join(
+            self.ops, "snapshots", self.leaky, "memory", "project-deploys.md"
+        )
         os.chmod(damaged, 0o600)
         th.write(damaged, "tampered\n")
         code, _out, err, runner = self.main()
@@ -61,8 +81,13 @@ class EgressTests(Base):
     def test_the_override_flag_cannot_be_given_as_an_abbreviation(self):
         for abbreviation in ("--allow", "--allow-s", "--allow-secret"):
             with self.subTest(abbreviation):
-                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                    run.build_parser().parse_args(["--dir", self.mem, "run", abbreviation])
+                with (
+                    contextlib.redirect_stderr(io.StringIO()),
+                    self.assertRaises(SystemExit),
+                ):
+                    run.build_parser().parse_args(
+                        ["--dir", self.mem, "run", abbreviation]
+                    )
 
     def test_the_environment_does_not_switch_the_override_on(self):
         saved = os.environ.get("MEMORY_SHEPHERD_ALLOW_SECRET_SHAPES")

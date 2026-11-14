@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
@@ -151,6 +152,27 @@ def prepare_arm(arm, args, ops, tmp):
     return memory, snap
 
 
+EARLY_FAIL_LIMIT = 6  # this many failed calls before a single answer: the setup is broken, stop paying for doomed calls
+
+
+class _EarlyFail:
+    """Stops a judge run whose first calls all fail (logged out, unknown flag, no network) instead of making every doomed call."""
+
+    def __init__(self, spend, limit=EARLY_FAIL_LIMIT):
+        self.spend, self.limit, self.failed, self.answered, self.first = spend, limit, 0, False, None
+        self._lock = threading.Lock()
+
+    def note(self, record):
+        with self._lock:
+            if "error" not in record:
+                self.answered = True
+                return
+            self.failed += 1
+            self.first = self.first or record["error"]
+            if not self.answered and self.failed >= self.limit:
+                self.spend.stop("the first %d model calls all failed, so nothing was graded (first error: %s)" % (self.failed, self.first))
+
+
 def run_arm(questions, runner, settings, memory, tmp, label, spend, workers):
     prompt = os.path.join(tmp, "prompt-%s.txt" % label)
     index = (
@@ -161,13 +183,15 @@ def run_arm(questions, runner, settings, memory, tmp, label, spend, workers):
     mrr.write_system_prompt(prompt, memory, mrr.visible_index(index))
     cwd = os.path.join(tmp, "child-cwd")
     mc.makedirs_private(cwd)
+    early = _EarlyFail(spend)
+
+    def one(question):
+        record = mrr.ask(question, runner, settings, prompt, memory, spend, cwd)
+        early.note(record)
+        return record
+
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        return list(
-            pool.map(
-                lambda q: mrr.ask(q, runner, settings, prompt, memory, spend, cwd),
-                questions,
-            )
-        )
+        return list(pool.map(one, questions))
 
 
 def report_run(arm, number, questions, records):
@@ -203,7 +227,8 @@ def execute(args, runner, questions, ops, tmp, plan, spend):
             )
             results.setdefault(arm, []).append(records)
             report_run(arm, number, questions, records)
-    print("TOOLS ok=" + ",".join(mrr.EXPECTED_TOOLS))
+    if any("pass" in rec for runs in results.values() for run in runs for rec in run):
+        print("TOOLS ok=" + ",".join(mrr.EXPECTED_TOOLS))  # only when a child really answered and reported them
     return results, labels
 
 

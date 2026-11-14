@@ -91,7 +91,13 @@ def cmd_ground(args):
         args.max_hunks,
     )
     staged = ds.stage_run(
-        ops, snap, result.accepted, result.rejected, result.deferred, now=args.now
+        ops,
+        snap,
+        result.accepted,
+        result.rejected,
+        result.deferred,
+        now=args.now,
+        incomplete=args.incomplete,
     )
     print(
         "GROUND accepted=%d rejected=%d deferred=%d"
@@ -386,6 +392,7 @@ def build_parser():
         help="accept pinned.txt.draft when pinned.txt is missing",
     )
     ground.add_argument("--now", type=float, default=None, help=argparse.SUPPRESS)
+    ground.add_argument("--incomplete", type=int, default=0, help=argparse.SUPPRESS)
     ground.set_defaults(fn=cmd_ground)
     promote = sub.add_parser(
         "promote", help="install a staged run (dry run unless --apply)"

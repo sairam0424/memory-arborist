@@ -19,7 +19,9 @@ import threading
 from collections import namedtuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # the judge may live in scripts/recall/
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)  # the judge may live in scripts/recall/
 import memory_common as mc  # noqa: E402
 import memory_redact as mr  # noqa: E402
 
@@ -135,7 +137,9 @@ def load_questions(path, require_count=True):
 def load_questions_text(text, require_count=True):
     """The questions in one JSONL text, checked. The wizard validates the exact bytes it installs with this."""
     questions, seen = [], set()
-    text = re.sub(r"\r\n?", "\n", text)  # as a text-mode file read would, which is how the judge loads the file
+    text = re.sub(
+        r"\r\n?", "\n", text
+    )  # as a text-mode file read would, which is how the judge loads the file
     for number, raw in enumerate(io.StringIO(text), start=1):
         if not raw.strip():
             continue
@@ -305,6 +309,25 @@ def failed_run_answer(stdout):
         return None
 
 
+FAILURE_LINE_CHARS = 120
+# The redactor withholds any line that mentions a credential cue word ("Invalid API key" included), so say how to read it.
+WITHHELD_FAILURE_LINE = "[withheld: the line mentions a credential; run 'claude -p hi' in a terminal to read it]"
+
+
+def failure_message(code, stdout, stderr):
+    """'claude exited with N' plus the first line the child said about it (the text of its error result, else its stderr),
+    cleaned and withheld when it looks like a secret. Without it a logged-out or misconfigured child is a bare number."""
+    failed = failed_run_answer(stdout) if stdout else None
+    source = (failed.text if failed and failed.text.strip() else stderr) or ""
+    line = next((ln.strip() for ln in source.splitlines() if ln.strip()), "")
+    if not line:
+        return "claude exited with %d" % code
+    return "claude exited with %d: %s" % (
+        code,
+        mr.sanitize(line, FAILURE_LINE_CHARS).excerpt or WITHHELD_FAILURE_LINE,
+    )
+
+
 def failed_run_cost(stdout):
     answer = failed_run_answer(stdout)
     return answer.cost if answer else 0.0
@@ -332,18 +355,25 @@ def ask(question, runner, settings, prompt_file, memory_dir, spend, cwd=None):
     )
     stdout = ""
     try:
-        code, stdout, _stderr = runner(argv, cwd, child_env())
+        code, stdout, stderr = runner(argv, cwd, child_env())
         if code != 0:
-            raise AskError("claude exited with %d" % code)
+            raise AskError(failure_message(code, stdout, stderr))
         out = parse_output(stdout)
-    except AskTimeout as err:  # first: it is an AskError. The real spend is unknown, so charge the cap.
+    except (
+        AskTimeout
+    ) as err:  # first: it is an AskError. The real spend is unknown, so charge the cap.
         return _errored(question, spend, err, settings.per_q_usd)
     except AskError as err:
         failed = failed_run_answer(stdout)
         record = _errored(question, spend, err, failed.cost if failed else 0.0)
         if failed and failed.tools is not None and failed.tools != EXPECTED_TOOLS:
-            spend.stop("the child reported tools %s, expected %s" % (failed.tools, EXPECTED_TOOLS))
-            raise ToolsMismatch(spend.stopped)  # a child that failed is still held to the tool list it reported
+            spend.stop(
+                "the child reported tools %s, expected %s"
+                % (failed.tools, EXPECTED_TOOLS)
+            )
+            raise ToolsMismatch(
+                spend.stopped
+            )  # a child that failed is still held to the tool list it reported
         return record
     spend.add(out.cost)
     if out.tools != EXPECTED_TOOLS:

@@ -199,7 +199,15 @@ def _hunk_section(hunk):
     )
 
 
-def build_report(run_id, snap_id, accepted, rejected, deferred, problems, digest):
+INCOMPLETE_BANNER = (
+    "**INCOMPLETE: %d model call(s) failed during this run.** A missing proposal below does not mean the note was fine: "
+    "read the LANE-ERROR lines of the run, fix the cause (often a login or a flag) and run it again before you rely on this report.\n"
+)
+
+
+def build_report(
+    run_id, snap_id, accepted, rejected, deferred, problems, digest, incomplete=0
+):
     parts = [
         "# Dream run %s\n\nSnapshot: %s\n\nRun digest: %s\n\nAccepted hunks: %d. Rejected: %d. Deferred past the cap: %d.\n"
         % (run_id, snap_id, digest, len(accepted), len(rejected), len(deferred)),
@@ -230,13 +238,15 @@ def build_report(run_id, snap_id, accepted, rejected, deferred, problems, digest
         )
         + "\n",
     ]
+    if incomplete:
+        parts.insert(1, INCOMPLETE_BANNER % incomplete)
     return "\n".join(parts)
 
 
 # ------------------------------------------------------------------ the run
 
 
-def stage_run(ops, snap_id, accepted, rejected, deferred, now=None):
+def stage_run(ops, snap_id, accepted, rejected, deferred, now=None, incomplete=0):
     snapshot_dir = os.path.join(ops, "snapshots", snap_id, "memory")
     ok, _count, problems = sn.verify_snapshot(ops, snap_id)
     if not ok:
@@ -263,7 +273,7 @@ def stage_run(ops, snap_id, accepted, rejected, deferred, now=None):
         ),
         "hunks.deferred.json": json.dumps(deferred, indent=1, sort_keys=True),
         "report.md": build_report(
-            run_id, snap_id, accepted, rejected, deferred, found, digest
+            run_id, snap_id, accepted, rejected, deferred, found, digest, incomplete
         ),
     }
     encoded = {

@@ -28,3 +28,4 @@ All notable changes are listed here. The format follows Keep a Changelog; versio
 
 ### Fixed
 - `dream/memory_dream_canary.py --help` and a mistyped option used to start a paid run; the canary now parses its arguments before it creates anything.
+- Failures look like failures. A dream run in which model calls failed used to exit 0 and write "all clean"; it now prints `INCOMPLETE`, puts a banner at the top of `report.md` and exits 5. A failed child is reported with the first line it printed ("claude exited with 1: Not logged in") instead of a bare number (a line that mentions a credential is withheld, with a hint to read it yourself). The recall judge stops after 6 failed calls when none has answered, and prints `TOOLS ok=` only once a child really answered. The dream run now looks for `pinned.txt` before the first paid call instead of after the lanes.
