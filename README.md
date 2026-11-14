@@ -72,7 +72,7 @@ Run it from the project whose memory you want to tidy. Claude drives these steps
 
 ## What it costs
 
-Every paid command prints an `ESTIMATE` line first: how many model calls, the cap on each, and the ceiling at which the run stops. Default ceilings are $3 for the wizard, $5 for each judge run and $8 for the lanes, about $26 if every step used its full ceiling. Real runs cost far less: on one author's memory of about 400 notes, a full pass that found nothing to change cost about $0.33 and the wizard about $1.30 for eight batches. Yours will differ with the model you pick and the amount of history you have.
+Every paid command prints an `ESTIMATE` line first: how many model calls, the cap on each, and the ceiling at which the run stops. Default ceilings are $3 for the wizard, $5 for each judge run and $8 for the lanes, about $26 if every step used its full ceiling. Real runs cost far less: on one author's memory of about 400 notes, a full pass that found nothing to change cost about $0.33 and the wizard about $1.30 for eight batches. Yours will differ with the model you pick and the amount of history you have. The plugin itself adds about 100 tokens to every session and about 2.8k tokens when you start the skill (Claude Code's own estimate, from `claude plugin details memory-arborist`).
 
 ## What leaves your machine
 
