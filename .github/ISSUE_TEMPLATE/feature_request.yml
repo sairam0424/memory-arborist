@@ -1,0 +1,20 @@
+name: Feature request
+description: Something you would like it to do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is a small beta with one maintainer, so requests are read but not promised. The most useful request describes the situation you are in, not the feature you imagine. **Please do not paste notes or transcript text.**
+  - type: textarea
+    id: situation
+    attributes:
+      label: What are you trying to do, and what gets in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: false

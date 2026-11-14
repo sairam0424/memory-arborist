@@ -1,0 +1,50 @@
+name: Bug report
+description: Something did not work, or a result looked wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Please do not paste your notes, transcripts or any text from your memory directory.** They are private and often hold personal data. Describe what happened in your own words and attach only what is asked for below.
+        Security problems do not belong here: see SECURITY.md.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of the doctor
+      description: Run `doctor/memory_doctor.py` from the plugin's `engine/` folder and paste everything it prints. It holds names, versions and counts only, no variable values and no note text.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What did you do, and what happened?
+      description: The step of the skill you were on, the command, the exit code, and the last `ESTIMATE`, `PIPELINE`, `LANE-ERROR` or `ABORTED` line it printed. Leave out note text.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: login
+    attributes:
+      label: How does your `claude` CLI log in?
+      options:
+        - Claude subscription
+        - Anthropic API key
+        - Amazon Bedrock
+        - Google Vertex
+        - A gateway or proxy
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you send
+      options:
+        - label: I did not paste notes, transcript text, keys or tokens.
+          required: true

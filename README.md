@@ -45,12 +45,14 @@ What rests on Claude Code's permission prompt and on you reading the diff:
 
 ## Install
 
-0.1.0 is an invite-only beta, so the repository is private: you need read access first. Then:
+0.1.0 is an invite-only beta, so the repository is private: you need read access first, and git on your machine must already hold a credential for it (for GitHub, `gh auth login` then `gh auth setup-git`). Then:
 
 ```
-claude plugin marketplace add sairam0424/memory-arborist
+claude plugin marketplace add sairam0424/memory-arborist#stable
 claude plugin install memory-arborist@memory-arborist
 ```
+
+`#stable` is the branch that moves only when a release is published, so you follow releases and not the work in progress. Update later with `claude plugin marketplace update memory-arborist`; Claude Code installs a new copy only when the plugin's version changes.
 
 You start it by typing `/memory-arborist:tend` in the project whose memory you want to look after. The skill does not start on its own, and it asks you before every step that costs money. The plugin also adds a read-only `SessionStart` hook that prints nothing until the index is within about 1,500 characters or 20 lines of the linter's warning levels, then one fixed two-sentence message with four numbers (no note text, no paths).
 

@@ -13,6 +13,8 @@ All notable changes are listed here. The format follows Keep a Changelog; versio
 - `memory_dream.py pin --none | --all`: creates `pinned.txt` (create-only, private mode, counts not text), because nothing created it before and the dream run stopped at a dead end on a first run.
 - A PreToolUse confirmation hook (`memory_confirm_gate.py`): Claude Code asks the person before `memory_dream.py promote --apply`, `memory_hygiene.py restore --apply` and any `memory_*.py` command given `--allow-secret-shapes`. It never denies and never edits; it cannot ask in bypass-permissions mode and it matches the command text only.
 - Every paid command prints an `ESTIMATE` line (calls, cap per call, run ceiling) before its first model call, and the skill is `disable-model-invocation`: it starts only when the person types it, and it asks for a yes before each paid step.
+- Community files: issue forms that ask for the doctor output and tell reporters not to paste notes, a pull request template, `SUPPORT.md`, `CODE_OF_CONDUCT.md`, a security contact that works without the Security tab, a statement of what the data root keeps, and a maintainer release procedure (bump the version, `claude plugin tag`, move the `stable` branch that testers add the marketplace from).
+- `engine/tests/test_memory_release_packaging.py`: the manifest, the marketplace entry, the hook paths, the skill front matter (including `disable-model-invocation`), the changelog and the README install commands must agree.
 - Release guard test that fails when a home path, or a word from the maintainer's private deny-list (kept in a git-ignored file, not in the repository), appears in the content or the name of any non-binary file (LICENSE, NOTICE and .gitignore included).
 
 ### Changed

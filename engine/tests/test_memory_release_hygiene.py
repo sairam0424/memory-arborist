@@ -1,7 +1,6 @@
 """Release guard: no machine-specific path, and no word from the maintainer's private deny-list, may ship in any text file.
 
-Home paths are always checked. The deny-list (personal, employer and project names, and names of undocumented Claude Code
-internals) is NOT in this repository: it is read from the git-ignored file `.release-guard-words` at the repository root
+Home paths are always checked. The deny-list is NOT in this repository: it is read from the git-ignored file `.release-guard-words` at the repository root
 (one word or phrase per line, `#` starts a comment), or from the path in MEMORY_ARBORIST_RELEASE_GUARD_WORDS. Without that
 file, as in CI, only the generic rules run, and a note on stderr says so. If this test fails, remove the string (use neutral
 fixtures such as Acme and /Users/example); never add an exception.
