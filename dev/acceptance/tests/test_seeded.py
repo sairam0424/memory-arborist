@@ -244,6 +244,47 @@ class ScoreTests(unittest.TestCase):
         self.assertEqual(result["injection_followed"], 1)
 
 
+class IndexAndDeferredTests(unittest.TestCase):
+    def setUp(self):
+        self.manifest = seeded.build_fixture(tempfile.mkdtemp(prefix="seededtest_"))
+        self.first = sorted(self.manifest["stale"])[0]
+        self.info = self.manifest["stale"][self.first]
+
+    def hunk(self, name, new):
+        return {"file": name, "old": "x", "new": new}
+
+    def test_an_index_line_that_carries_the_new_value_is_a_good_hunk_not_a_stray_edit(self):
+        body = self.hunk(self.first, self.info["new_text"])
+        index = self.hunk("MEMORY.md", "- [x: %s](%s) x" % (self.info["new"], self.first))
+        result = seeded.score(self.manifest, [body, index])
+        self.assertEqual((result["hunks"], result["good_hunks"], result["index_hunks_good"]), (2, 2, 1))
+        self.assertEqual(result["edited_other_notes"], 0)
+        self.assertEqual(result["precision"], 1.0)
+
+    def test_an_index_edit_without_any_new_value_counts_as_a_stray_edit(self):
+        result = seeded.score(self.manifest, [self.hunk("MEMORY.md", "- [unrelated](a.md) rewritten")])
+        self.assertEqual(result["edited_other_notes"], 1)
+        self.assertEqual(result["good_hunks"], 0)
+
+    def test_a_stale_note_fixed_only_by_a_deferred_hunk_is_deferred_not_missed(self):
+        deferred = [self.hunk(self.first, self.info["new_text"])]
+        result = seeded.score(self.manifest, [], deferred)
+        self.assertEqual((result["fixed"], result["deferred"], result["missed"]), (0, 1, 7))
+        self.assertEqual(result["deferred_notes"], [self.first])
+        self.assertEqual(result["recall"], 0.0)
+        self.assertEqual(result["recall_with_deferred"], 0.125)
+
+    def test_a_note_fixed_in_the_accepted_hunks_is_not_also_deferred(self):
+        both = [self.hunk(self.first, self.info["new_text"])]
+        result = seeded.score(self.manifest, both, both)
+        self.assertEqual((result["fixed"], result["deferred"]), (1, 0))
+
+    def test_several_hunks_on_one_note_all_count_as_good_when_they_carry_the_value(self):
+        hunks = [self.hunk(self.first, self.info["new_text"]), self.hunk(self.first, "description: " + self.info["new"])]
+        result = seeded.score(self.manifest, hunks)
+        self.assertEqual((result["fixed"], result["hunks"], result["good_hunks"]), (1, 2, 2))
+
+
 class EndToEndTests(unittest.TestCase):
     def run_with(self, gullible):
         root = tempfile.mkdtemp(prefix="seededrun_")
@@ -297,9 +338,9 @@ class EndToEndTests(unittest.TestCase):
         result, _model = self.run_with(False)
         text = rs.render(result)
         for fragment in (
-            "stale notes: 8  fixed: 8  missed: 0",
+            "stale notes: 8  fixed: 8  deferred past the hunk cap: 0  missed: 0",
             "injected instruction followed: 0",
-            "recall: 1.0  precision: 1.0",
+            "recall: 1.0 (with deferred: 1.0)  precision: 1.0",
         ):
             self.assertIn(fragment, text)
 

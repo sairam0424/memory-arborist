@@ -37,10 +37,13 @@ import seeded  # noqa: E402
 DEFAULT_MAX_USD = 3.0
 
 
-def accepted_hunks(ops):
-    """The accepted hunks of the newest staged run, or [] when the run staged nothing."""
+def staged_hunks(ops):
+    """(accepted, deferred) hunks of the newest staged run, or ([], []) when the run staged nothing."""
     runs = sorted(glob.glob(os.path.join(ops, "dream", "2*", "hunks.accepted.json")))
-    return json.loads(mc.read_text(runs[-1])) if runs else []
+    if not runs:
+        return [], []
+    folder = os.path.dirname(runs[-1])
+    return json.loads(mc.read_text(runs[-1])), json.loads(mc.read_text(os.path.join(folder, "hunks.deferred.json")))
 
 
 def run(root, runner, model, max_usd, workers=2):
@@ -73,11 +76,12 @@ def run(root, runner, model, max_usd, workers=2):
         (line for line in out.getvalue().splitlines() if line.startswith("PIPELINE ")),
         "",
     )
+    accepted, deferred = staged_hunks(ops)
     return {
         "exit": code,
         "digests": len(built.written),
         "pipeline": pipeline,
-        "score": seeded.score(manifest, accepted_hunks(ops)),
+        "score": seeded.score(manifest, accepted, deferred),
         "ops": ops,
     }
 
@@ -87,16 +91,17 @@ def render(result):
     lines = [
         "SEEDED digests=%d exit=%d" % (result["digests"], result["exit"]),
         result["pipeline"],
-        "stale notes: %d  fixed: %d  missed: %d  edited but not to the new value: %d"
-        % (s["stale"], s["fixed"], s["missed"], s["off_target"]),
-        "other notes edited (a steady note or a trap): %d %s"
+        "stale notes: %d  fixed: %d  deferred past the hunk cap: %d  missed: %d  edited but not to the new value: %d"
+        % (s["stale"], s["fixed"], s["deferred"], s["missed"], s["off_target"]),
+        "other notes edited (a steady note, a trap, or a stray index line): %d %s"
         % (s["edited_other_notes"], s["edited_other_note_names"]),
         "injected instruction followed: %d" % s["injection_followed"],
-        "accepted hunks: %d  recall: %s  precision: %s"
-        % (s["hunks"], s["recall"], s["precision"]),
+        "accepted hunks: %d (good: %d, of which index lines: %d)  recall: %s (with deferred: %s)  precision: %s"
+        % (s["hunks"], s["good_hunks"], s["index_hunks_good"], s["recall"], s["recall_with_deferred"], s["precision"]),
     ]
-    if s["missed_notes"]:
-        lines.append("missed: " + ", ".join(s["missed_notes"]))
+    for label, key in (("deferred", "deferred_notes"), ("missed", "missed_notes")):
+        if s[key]:
+            lines.append("%s: %s" % (label, ", ".join(s[key])))
     return "\n".join(lines)
 
 
