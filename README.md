@@ -1,52 +1,117 @@
 # memory-arborist
 
-**A memory upgrade for your Claude Code harness.** memory-arborist is a Claude Code plugin that looks after the auto-memory directory (`MEMORY.md` plus one note per topic). It backs the memory up, tells you when the index is filling up, cleans out stale and contradicted notes using what you actually said in past sessions, and checks that the clean-up did not make Claude forget anything. It never changes your memory behind your back: every edit is shown to you as a diff and installed only after you say yes, and any change can be restored from a snapshot.
+*An independent project: not made, endorsed or supported by Anthropic.*
 
-**What you get**
+**A memory upgrade for your Claude Code harness.** Claude Code keeps an auto-memory directory for each project: an index (`MEMORY.md`) and one note per topic. Over months it fills with notes that are stale, contradicted or half-duplicated, and the index creeps toward the point where Claude Code stops reading it. memory-arborist looks after that directory the way an arborist looks after a tree: it takes a backup first, finds what has gone stale **using what you actually said in your own past sessions**, drafts small edits, checks that the clean-up did not make Claude forget anything, and shows you every change as a diff. Nothing is installed until you say yes, and any change can be undone.
 
-- **Verified snapshots and restore.** A hash-checked backup of the memory directory before anything touches it, and a one-file restore.
-- **A heads-up before the index overflows.** A read-only session-start hint when `MEMORY.md` is close to Claude Code's documented read limit.
-- **Clean-up from your own history.** Redacted digests of your past sessions show which notes are stale, wrong or superseded. Model lanes without tools draft the fixes, and every fix is checked mechanically against the notes and the evidence before you see it.
-- **A recall check.** An outside judge asks the same fixed questions of the old and the new memory and flags anything Claude would now forget or get wrong. A wizard proposes the question set from your own notes, checks it against them, and you read it before it is installed.
-- **A secret check before anything is sent.** The notes a model is about to read are scanned first; a run that would send a credential-shaped string is refused.
+> **Status: 0.1.0, invite-only beta.** Read "Limits" below before you try it. macOS and Linux only.
 
-Under the hood it is a skill, a session-start hook and a Python standard-library engine, described in the sections below.
+## What you get
 
-> **Status: pre-release (0.1.0), not published yet.** macOS and Linux only (it relies on POSIX file semantics; Windows is not supported). Needs `python3` 3.11 or newer (CI covers 3.11 to 3.15; the suites also pass on 3.9), standard library only, and the `claude` CLI on `PATH`; it was developed and tested with Claude Code 2.1.322 (it uses `--safe-mode` and exec-form hook arguments) and older versions are untested. The recall judge needs a question set of 25 to 32 questions: the question wizard proposes most of it from your notes for you to read and accept, and you add the questions about stale or replaced facts by hand (see `docs/recall-questions.md`).
+| | |
+|---|---|
+| **Snapshots and restore** | A hash-checked copy of the memory directory before anything touches it, and a one-file restore. |
+| **A heads-up before the index overflows** | A read-only session-start hint when `MEMORY.md` is close to Claude Code's documented read limit. |
+| **Clean-up from your own history** | Redacted digests of your past terminal sessions show which notes are stale, wrong or superseded. Model lanes with no tools draft the fixes. Every fix is checked mechanically against the notes and the evidence before you see it. |
+| **A recall check** | An outside judge asks the same fixed questions of the old and the new memory and flags anything Claude would now forget or get wrong. A wizard proposes the question set from your own notes; you read it before it is installed. |
+| **A secret check before anything is sent** | The notes a model is about to read are scanned first, and a run that holds one of 19 recognised credential shapes is refused (what that does and does not cover is below). |
+| **A confirmation before anything changes** | A hook makes Claude Code ask you before the two commands that write to your notes. |
+
+What a fix looks like in the report you read (this one is made up):
+
+```
+### h1  project-deploys.md  (edit)
+
+Why: you moved deploys to Thursday.
+Evidence:
+  - session 11111111-…: "we moved the deploys to Thursday afternoons last week"
+Old:   Deploys run every Tuesday at noon.
+New:   Deploys run every Thursday afternoon.
+```
+
+## How safe is it, exactly?
+
+What the code enforces, whatever Claude does:
+
+- **Your notes are written by two commands only**: `memory_dream.py promote --apply` and `memory_hygiene.py restore --apply`. Everything else works on copies under the data root.
+- **`promote --apply` needs the digest** a dry run printed for exactly the staged content, takes a fresh snapshot, archives each note it replaces, and refuses if a note changed since the snapshot.
+- **The model lanes have no tools.** They run `claude --safe-mode --tools ""` and the run aborts if a lane ever reports a tool. What a lane returns is a proposal; nothing in it is trusted until it has been checked against the notes and your own words.
+- **A secret check runs before any model call** (see below).
+
+What rests on Claude Code's permission prompt and on you reading the diff:
+
+- **The final yes.** The plugin's hook makes Claude Code ask before `promote --apply`, `restore --apply` and any `--allow-secret-shapes` command. That prompt appears in Claude Code's default and accept-edits permission modes, and it beats a broad "allow Bash" rule. It does **not** appear in bypass-permissions mode, and in auto mode a classifier answers it, so in those modes the only gate is the skill's own instruction. The hook also matches the plain commands the skill runs; a command assembled at run time would not be recognised. It is a seat belt, not a sandbox.
+- **The quality of a proposal.** The checks reject edits that the evidence does not support. They cannot know whether an edit that passes is the one you wanted. That is why you read the report.
 
 ## Install
 
-Once the repository is public:
+0.1.0 is an invite-only beta, so the repository is private: you need read access first. Then:
 
 ```
 claude plugin marketplace add sairam0424/memory-arborist
 claude plugin install memory-arborist@memory-arborist
 ```
 
-Then ask Claude to run the `memory-arborist:tend` skill ("consolidate my memory"). The plugin also adds a read-only `SessionStart` hook that tells the session when `MEMORY.md` is close to Claude Code's documented read limit. It prints nothing until the index is within about 1,500 characters or 20 lines of the linter's warning levels; then it prints one fixed two-sentence message with four numbers filled in (no note text, no paths) that tells the model to inform you and not to act unless you ask.
+You start it by typing `/memory-arborist:tend` in the project whose memory you want to look after. The skill does not start on its own, and it asks you before every step that costs money. The plugin also adds a read-only `SessionStart` hook that prints nothing until the index is within about 1,500 characters or 20 lines of the linter's warning levels, then one fixed two-sentence message with four numbers (no note text, no paths).
 
-## What it does
+## Your first run
 
-| Stage | Command (in `engine/`) | Writes to your memory? |
-|---|---|---|
-| Safety net: snapshot, verify, restore, lint, secret scan, compare, log, prune plan | `memory_hygiene.py` | only `restore --apply`, which puts back one named file from a named snapshot (a dry run without `--apply`) |
-| Evidence: redacted digests of idle past sessions | `memory_evidence.py` | no |
-| Outside recall judge: fixed questions, regex-graded answers, baseline / staged / empty arms | `recall/memory_recall.py` | no |
-| Question wizard: proposes the question set from your notes, checks it against them, installs it only for the digest you read | `recall/memory_recall_wizard.py` | no |
-| Proposal lanes (finder, writer, verifier): headless `claude` children with no tools | `dream/memory_dream_run.py` | no |
-| Ground, stage, promote | `memory_dream.py` | only `promote --apply`, with a digest that matches the staged content |
+Run it from the project whose memory you want to tidy. Claude drives these steps for you and asks before each one that spends money; you can also run every script yourself from `engine/`.
 
-The lanes run `claude --safe-mode --tools ""`: no built-in tools, and `--safe-mode` also turns off MCP servers, plugins, hooks and CLAUDE.md for the child (see `claude --help`). A run aborts if a lane ever reports using a tool. A planted-injection canary (`dream/memory_dream_canary.py`) checks that a true update comes out as a grounded hunk and an injected instruction does not; it spends a few cents, so rerun it after Claude Code or model changes.
+0. **Check the setup (free).** `doctor/memory_doctor.py` checks Python, Claude Code and its flags, the login variables the helper processes do not receive, the memory directory and the first-run files, and prints what to fix. Its output holds names, versions and counts only, so it is safe to paste into an issue. `doctor/memory_doctor.py --live` adds one real call (at most $0.05, usually a fraction of a cent) that proves your login and the output format.
+1. **Safety net.** A verified snapshot, then a lint and a secret scan. Free.
+2. **Evidence.** Redacted digests of your past terminal sessions that have been idle for at least six hours, newest first. Free.
+3. **Set up the two small files.** `memory_dream.py pin --none` (or `--all`) creates `pinned.txt`: the index lines the run must never edit. The question wizard proposes the 25 to 32 recall questions from your own notes; you read them and accept. About $1 for a memory of a few hundred notes.
+4. **Baseline.** The judge asks the questions of your current memory and saves the answers. Cents.
+5. **Proposals.** Tool-less lanes read the digests and the notes and draft edits; everything that survives the checks is staged outside your memory directory.
+6. **Recall check.** The judge asks the same questions of the staged copy. `REGRESSIONS n=0` and `RESURRECTED n=0` are required.
+7. **You read the report** and say yes or no to the whole run. Only then does `promote --apply` write to your notes, after a fresh snapshot.
+8. **Undo.** `memory_hygiene.py snapshots` lists the backups; `restore` puts one file back.
+
+## What it costs
+
+Every paid command prints an `ESTIMATE` line first: how many model calls, the cap on each, and the ceiling at which the run stops. Default ceilings are $3 for the wizard, $5 for each judge run and $8 for the lanes, about $26 if every step used its full ceiling. Real runs cost far less: on one author's memory of about 400 notes, a full pass that found nothing to change cost about $0.33 and the wizard about $1.30 for eight batches. Yours will differ with the model you pick and the amount of history you have.
 
 ## What leaves your machine
 
-The lanes, the question wizard and the judge send note text, and the lanes also send redacted transcript excerpts, to the model provider your `claude` CLI is configured for. Redaction is best effort and fails closed on cue words, but it **cannot** catch: rot13 or base85 text, look-alike characters, a bare random string shorter than 32 characters with no cue word, bare UUIDs, bare hex of 32 to 63 characters, or any secret that has no recognisable shape. Read `SECURITY.md` before you run it on a memory directory that holds anything you would not send to your provider.
+The lanes, the question wizard and the judge send note text, and the lanes also send redacted transcript excerpts, to the model provider your `claude` CLI is configured for. Redaction is best effort and fails closed on cue words, but it **cannot** catch: rot13 or base85 text, look-alike characters, a bare random string shorter than 32 characters with no cue word, bare UUIDs, bare hex of 32 to 63 characters, or any secret that has no recognisable shape. Each digest also carries the session's working-directory path, and a judge question appears in the process list for the duration of its call. Read `SECURITY.md` before you run it on a memory directory that holds anything you would not send to your provider.
 
-Each digest also carries the session's working-directory path, and a judge question appears in the process list for the duration of its call. Children get only `PATH`, `HOME`, `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_DEFAULT_REGION` and `AWS_PROFILE`. If you authenticate with an API key variable, list its name in `MEMORY_ARBORIST_PASS_ENV`; its value then goes to the child and the provider.
+The helper processes get only `PATH`, `HOME`, `CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_DEFAULT_REGION` and `AWS_PROFILE`. If you log in with an API key, a proxy, Vertex or a gateway, `doctor` names the variables that are set but not passed and prints the exact `MEMORY_ARBORIST_PASS_ENV=...` line; a listed variable's value then goes to the helper and on to your provider.
 
-## Secret shapes are checked before anything is sent
+### The secret check, precisely
 
-Before a lane or the judge sends any note text to your provider, `memory_egress.py` scans the exact notes the model can read (the verified snapshot copy, or the staged directory). A block-tier secret shape, or an entry that could not be scanned (a symlink, an unreadable file), refuses the run with exit code 4 and prints counts and file names only. `--allow-secret-shapes` on `dream/memory_dream_run.py run` and `recall/memory_recall.py` overrides it for that run and prints one warning; there is deliberately no environment variable for it. The shapes are those defined in `engine/memory_scan.py`; `docs/PROVENANCE.md` section 5 names the public source of each. A secret with no recognisable shape still passes, and so do plain lines such as `password: value` (the digest filter is stricter than the note scan because a note may legitimately mention a password). File names are not scanned.
+Before a lane or the judge sends note text, `memory_egress.py` scans the exact notes the model can read. It **refuses the run (exit code 4)** when it finds one of the 19 block-tier shapes in `engine/memory_scan.py` (AWS keys, GitHub, Anthropic, OpenAI, Stripe, Slack, npm and Google tokens, private-key blocks, JWTs, bearer tokens, database URLs and `secret = "…"` style assignments) or an entry it could not scan (a symlink, an unreadable file). It prints counts and file names only. `--allow-secret-shapes` overrides it for one run and prints a warning; there is deliberately no environment variable for it.
+
+It does **not** refuse, because they are warnings in `memory_hygiene.py scan` rather than blocks: environment-style lines such as `SOME_KEY=value`, quoted key and value pairs, long hex strings, high-entropy strings, email addresses and phone numbers. Run `memory_hygiene.py scan` first and read what it reports. A secret with no recognisable shape passes, and file names are not scanned.
+
+## Your data, and how to remove it
+
+Everything lives under the data root, `<Claude config dir>/memory-arborist/<project>/` (normally `~/.claude/memory-arborist/<project>/`), outside the plugin folder so an update does not touch it: snapshots (full copies of your notes), evidence digests (redacted excerpts of your sessions), baselines, your question set, `pinned.txt`, staged runs and a log. Nothing in it is ever deleted by this tool, so the folder only grows: `memory_hygiene.py prune-plan` and `memory_evidence.py purge-plan` print removal lines for old snapshots and digests for you to run, and old staged runs under `dream/` you remove by hand.
+
+To remove everything: `claude plugin uninstall memory-arborist@memory-arborist`, `claude plugin marketplace remove memory-arborist`, and then delete the data root yourself (it holds copies of your notes and excerpts of your sessions, so uninstalling the plugin does not delete it).
+
+## Limits and compatibility
+
+- **Platforms:** macOS and Linux (it relies on POSIX file semantics). Windows is not supported.
+- **Python:** 3.11 or newer, standard library only (CI covers 3.11 to 3.15).
+- **Claude Code:** the session-start hook needs 2.1.139 or newer and the model-backed steps need 2.1.169 or newer (`--safe-mode`). Tested with 2.1.322 and 2.1.325; older and newer versions are untested.
+- **Login routes:** tested through Amazon Bedrock only. Subscription, API-key, Vertex and gateway logins are untested; `doctor --live` tells you in one cheap call whether yours works.
+- **Which sessions it learns from:** sessions started from the terminal (entrypoint `cli`). Headless runs stay out on purpose; an editor or desktop session is left out unless you pass `--include-entrypoint NAME` (the build prints the names it skipped).
+- **Which memory:** the current project's directory, found from your working directory. `autoMemoryDirectory` and `CLAUDE_CODE_PROJECT_DIR_NAME` are not read; point `MEMORY_ARBORIST_MEMORY_DIR` at the directory instead.
+- **The question set:** the judge needs 25 to 32 questions. The wizard proposes recall and negative questions only; you add questions about facts you know have changed by hand (see `docs/recall-questions.md`). A memory with fewer than about 25 notes worth asking about cannot reach the floor yet.
+- **Models:** the lanes default to `sonnet` and the judge to `haiku`, aliases that resolve to different versions on different providers, so a baseline is only comparable with runs on the same provider. Pin full model ids in the two model variables for reproducible baselines.
+- **Quality is not yet measured against known-bad notes.** The checks stop unsupported edits; how many real stale notes it finds, and how often it proposes something you would reject, has been measured only on the author's own memory.
+
+## When something goes wrong
+
+| You see | It means |
+|---|---|
+| `FAIL` or `WARN` from `doctor` | Follow its `fix:` line. |
+| exit 4, `REFUSED` | The notes hold a block-tier secret shape or an unscannable entry; nothing was sent. Remove the text and take a fresh snapshot. |
+| exit 5, `INCOMPLETE` | The run finished but some model calls failed (the report starts with a banner). Fix the cause named on the `LANE-ERROR` lines, often a login, then run it again; do not read "no proposals" as "nothing to change". |
+| `ABORTED the first 6 model calls all failed` | The judge could not get any answer. Run `doctor --live`. |
+| `did not report its tool list` | This Claude Code version prints its output in a different format than expected. Run `doctor --live` and report the version. |
+| `digests=0` | No idle terminal session yet, or every session was left out; read the `NOTE` lines. |
 
 ## Configuration
 
@@ -57,11 +122,9 @@ Before a lane or the judge sends any note text to your provider, `memory_egress.
 | `MEMORY_ARBORIST_CLAUDE_HOME` | the Claude Code configuration directory | Claude Code's own `CLAUDE_CONFIG_DIR` if set, else `~/.claude` |
 | `MEMORY_ARBORIST_LANE_MODEL` | model for the proposal lanes | `sonnet` |
 | `MEMORY_ARBORIST_JUDGE_MODEL` | model for the recall judge | `haiku` |
-| `MEMORY_ARBORIST_PASS_ENV` | comma-separated variable names to forward to the children | none |
+| `MEMORY_ARBORIST_PASS_ENV` | comma-separated variable names to forward to the helper processes | none |
 
-`CLAUDE_CONFIG_DIR` is followed because Claude Code documents it as moving every `~/.claude` path; this tool's data root moves with it. After you set it, keep using your old data with `MEMORY_ARBORIST_HOME=<old data root>` rather than moving snapshots (a moved snapshot no longer matches its recorded source and later snapshots and restores refuse it); only `pinned.txt` and `recall/questions.jsonl` are safe to copy. The headless children do not receive it, so if a child needs it to find your credentials, list `CLAUDE_CONFIG_DIR` in `MEMORY_ARBORIST_PASS_ENV`. `CLAUDE_CODE_PROJECT_DIR_NAME` and the `autoMemoryDirectory` setting are not read; point `MEMORY_ARBORIST_MEMORY_DIR` at that directory.
-
-Model aliases resolve to different versions on different providers, so a recall baseline is only comparable with runs on the same provider. Pin a full model id in the two model variables for reproducible baselines.
+`CLAUDE_CONFIG_DIR` is followed because Claude Code documents it as moving every `~/.claude` path; this tool's data root moves with it. After you set it, keep using your old data with `MEMORY_ARBORIST_HOME=<old data root>` rather than moving snapshots (a moved snapshot no longer matches its recorded source and later snapshots and restores refuse it); only `pinned.txt` and `recall/questions.jsonl` are safe to copy. The helper processes do not receive `CLAUDE_CONFIG_DIR`, so if one needs it to find your credentials, list it in `MEMORY_ARBORIST_PASS_ENV`.
 
 ## Where the Claude Code facts come from
 
@@ -74,9 +137,10 @@ cd engine
 python3 -I -m unittest discover -s tests -p 'test_memory_*.py'
 python3 -I -m unittest discover -s recall/tests -p 'test_memory_recall*.py'
 python3 -I -m unittest discover -s dream/tests -p 'test_dream_*.py'
+python3 -I -m unittest discover -s doctor/tests -p 'test_doctor_*.py'
 ```
 
-`dev/harness/` holds mutation checks that edit a temporary copy of the engine and expect the tests to fail. Two of the session-start hook's mutants are documented as equivalent (they change memory use or an empty string, not behaviour).
+`dev/harness/` holds mutation checks that edit a temporary copy of the engine and expect the tests to fail. A few timing assertions in the safety-net suite can fail on a heavily loaded machine; rerun when it is idle.
 
 ## Not affiliated
 
