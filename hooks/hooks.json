@@ -1,5 +1,5 @@
 {
-  "description": "Tells the session when MEMORY.md is close to its documented read limit. Read-only: it prints one fixed two-sentence message with four numbers filled in, only when the index is nearly full, and never edits anything.",
+  "description": "SessionStart: tells the session when MEMORY.md is close to its documented read limit (read-only: one fixed two-sentence message with four numbers, only when the index is nearly full). PreToolUse: asks you to confirm before a memory-shepherd command that changes your live notes (promote --apply, restore --apply) or sends notes the secret scan refused (--allow-secret-shapes). Neither hook edits anything, and the confirmation hook never denies, it only asks.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,34 @@
             "type": "command",
             "command": "python3",
             "args": ["-B", "-I", "${CLAUDE_PLUGIN_ROOT}/engine/memory_headroom_nudge.py"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(*memory_dream.py*promote*--apply*)",
+            "command": "python3",
+            "args": ["-B", "-I", "${CLAUDE_PLUGIN_ROOT}/engine/memory_confirm_gate.py"],
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Bash(*memory_hygiene.py*restore*--apply*)",
+            "command": "python3",
+            "args": ["-B", "-I", "${CLAUDE_PLUGIN_ROOT}/engine/memory_confirm_gate.py"],
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Bash(*--allow-secret-shapes*)",
+            "command": "python3",
+            "args": ["-B", "-I", "${CLAUDE_PLUGIN_ROOT}/engine/memory_confirm_gate.py"],
             "timeout": 5
           }
         ]
