@@ -207,7 +207,7 @@ def ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None):
     out = mrr.parse_output(stdout)
     spend.add(out.cost)
     if out.tools != []:
-        reason = "a lane reported tools %s" % (out.tools,)
+        reason = mrr.tools_reason("a lane", out.tools)
         spend.stop(reason)
         raise mrr.ToolsMismatch(reason)
     if out.is_error:

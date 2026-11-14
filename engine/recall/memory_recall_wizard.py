@@ -489,6 +489,7 @@ def cmd_propose(args, runner):
     if not chunks:
         raise mc.HygieneError("the snapshot holds no note long enough to ask about")
     haystack = "\n".join(notes.values()).lower()
+    print(mrr.estimate_line("question wizard", len(chunks), args.per_call_usd, args.total_max_usd))
     spend = mrr.Spend(args.total_max_usd)
     try:
         replies = _ask_chunks(

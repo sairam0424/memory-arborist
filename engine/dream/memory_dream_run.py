@@ -260,6 +260,7 @@ def cmd_run(args, runner):
     memory, ops = dr._paths(args)
     dr._load_pinned(ops, args.pinned_draft_ok)  # a missing pinned.txt is found now, not after the paid lanes have run
     snap = _verified_snapshot(ops, args)
+    print(mrr.estimate_line("dream lanes (finders, writers, verifiers)", "an open number of", args.per_lane_usd, args.total_max_usd))
     spend = mrr.Spend(args.total_max_usd)
     try:
         result = run_pipeline(

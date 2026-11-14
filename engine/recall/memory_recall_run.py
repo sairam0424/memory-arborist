@@ -300,6 +300,28 @@ def _clean_cost(value):
     return cost if 0 <= cost < float("inf") else 0.0
 
 
+def estimate_line(what, calls, per_call_usd, ceiling_usd):
+    """One line printed before a paid step: how many calls, the cap on each and the ceiling the run stops at."""
+    return (
+        "ESTIMATE %s: %s model calls, each capped at %s USD, run ceiling %s USD (the run stops there); "
+        "the real cost is usually well below the ceiling" % (what, calls, per_call_usd, ceiling_usd)
+    )
+
+
+NO_TOOL_LIST = (
+    "did not report its tool list (its JSON output has no system/init element), so the run cannot confirm the child had only "
+    "the tools it should have; this Claude Code version may print a different format: run doctor/memory_doctor.py --live and report the version"
+)
+
+
+def tools_reason(who, reported, expected=None):
+    """Why a child's reported tool list stops the run; a missing list says so instead of printing 'tools None'."""
+    if reported is None:
+        return "%s %s" % (who, NO_TOOL_LIST)
+    text = "%s reported tools %s" % (who, reported)
+    return text if expected is None else "%s, expected %s" % (text, expected)
+
+
 def failed_run_answer(stdout):
     """What a failed child still printed on stdout (its result and tool list), or None when nothing parses.
     The caller raises or records the failure itself, so no error is hidden here."""
@@ -367,19 +389,14 @@ def ask(question, runner, settings, prompt_file, memory_dir, spend, cwd=None):
         failed = failed_run_answer(stdout)
         record = _errored(question, spend, err, failed.cost if failed else 0.0)
         if failed and failed.tools is not None and failed.tools != EXPECTED_TOOLS:
-            spend.stop(
-                "the child reported tools %s, expected %s"
-                % (failed.tools, EXPECTED_TOOLS)
-            )
+            spend.stop(tools_reason("the child", failed.tools, EXPECTED_TOOLS))
             raise ToolsMismatch(
                 spend.stopped
             )  # a child that failed is still held to the tool list it reported
         return record
     spend.add(out.cost)
     if out.tools != EXPECTED_TOOLS:
-        spend.stop(
-            "the child reported tools %s, expected %s" % (out.tools, EXPECTED_TOOLS)
-        )
+        spend.stop(tools_reason("the child", out.tools, EXPECTED_TOOLS))
         raise ToolsMismatch(spend.stopped)
     if out.is_error:
         return {

@@ -145,5 +145,29 @@ class ToolsLineTests(TempRoot):
         self.assertIn("TOOLS ok=Glob,Grep,Read", out)
 
 
+class ToolListTests(TempRoot):
+    def test_a_missing_tool_list_is_explained_instead_of_printed_as_none(self):
+        text = mrr.tools_reason("the child", None, mrr.EXPECTED_TOOLS)
+        self.assertIn("did not report its tool list", text)
+        self.assertNotIn("None", text)
+
+    def test_a_wrong_tool_list_keeps_its_wording(self):
+        self.assertEqual(
+            mrr.tools_reason("the child", ["Bash"], ["Read"]),
+            "the child reported tools ['Bash'], expected ['Read']",
+        )
+        self.assertEqual(mrr.tools_reason("a lane", ["Bash"]), "a lane reported tools ['Bash']")
+
+    def test_a_judge_run_whose_children_print_no_init_element_aborts_with_that_explanation(self):
+        mem = memory_with_phrases()
+        root = tempfile.mkdtemp(prefix="recops_")
+        ops = mc.ops_dir_for(mem, root)
+        sn.take_snapshot(mem, ops, now=T0)
+        argv = ["--questions", write_questions(questions()), "--dir", mem, "--ops-root", root, "--no-log", "--arm", "live", "--workers", "1"]
+        code, out, err = run_main(argv, lambda a, cwd, env: (0, fake_output("x", init=False), ""))
+        self.assertEqual(code, 1)
+        self.assertIn("did not report its tool list", out + err)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,9 @@ jobs:
       - name: Dream pipeline
         working-directory: engine
         run: python -I -m unittest discover -s dream/tests -p 'test_dream_*.py'
+      - name: First-run doctor
+        working-directory: engine
+        run: python -I -m unittest discover -s doctor/tests -p 'test_doctor_*.py'
 
   dco:
     name: sign-off check

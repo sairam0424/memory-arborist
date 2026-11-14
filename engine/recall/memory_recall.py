@@ -434,6 +434,8 @@ def judge(args, runner):
 
 
 def _judge_in(args, runner, questions, ops, tmp, spend):
+    runs = sum(repeat for _arm, repeat in make_plan(args))
+    print(mrr.estimate_line("judge", len(questions) * runs, args.per_q_usd, args.total_max_usd))
     try:
         results, labels = execute(
             args, runner, questions, ops, tmp, make_plan(args), spend

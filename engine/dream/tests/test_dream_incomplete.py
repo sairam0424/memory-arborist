@@ -98,6 +98,12 @@ class IncompleteRunTests(Base):
         self.assertNotIn("INCOMPLETE", out)
         self.assertNotIn("INCOMPLETE", self.report())
 
+    def test_the_ceiling_is_announced_before_the_first_model_call(self):
+        code, out, _err = self.main(ScriptedRunner(finder={"findings": []}))
+        self.assertIn("ESTIMATE dream lanes", out)
+        self.assertIn("run ceiling 8.0 USD", out)
+        self.assertLess(out.index("ESTIMATE"), out.index("PIPELINE"))
+
     def test_a_failed_lane_exits_five_and_says_so_in_the_output_and_the_report(self):
         code, out, _err = self.main(ScriptedRunner(finder="not json at all"))
         self.assertEqual(code, run.EXIT_INCOMPLETE)

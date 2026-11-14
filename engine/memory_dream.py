@@ -20,6 +20,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import memory_common as mc  # noqa: E402
 import memory_dream_ground as dg  # noqa: E402
+import memory_dream_pin as dp  # noqa: E402
 import memory_dream_stage as ds  # noqa: E402
 import memory_registry as reg  # noqa: E402
 import memory_snapshot as sn  # noqa: E402
@@ -69,8 +70,18 @@ def _load_pinned(ops, allow_draft):
                 print("WARNING %s is empty: no index line is protected" % name)
             return lines
     raise mc.HygieneError(
-        "pinned.txt is missing: confirm pinned.txt.draft first (or pass --pinned-draft-ok)"
+        "pinned.txt is missing: create it with `memory_dream.py pin --none` (protect no index line) or `pin --all` "
+        "(protect every index line of the newest snapshot), or confirm pinned.txt.draft (or pass --pinned-draft-ok)"
     )
+
+
+def cmd_pin(args):
+    _memory, ops = _paths(args)
+    path, count = dp.create(ops, args.all)
+    print("PINNED %d index lines written to %s" % (count, path))
+    if not count:
+        print("WARNING no index line is protected; add lines to that file (copied exactly from MEMORY.md) to protect them")
+    return EXIT_OK
 
 
 def cmd_ground(args):
@@ -382,6 +393,11 @@ def build_parser():
         help="data root for backups, logs, digests and baselines (default <Claude config dir>/memory-shepherd, normally ~/.claude/memory-shepherd)",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
+    pin = sub.add_parser("pin", help="create pinned.txt (the index lines a dream run must not edit)")
+    mode = pin.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--none", action="store_true", help="protect no index line")
+    mode.add_argument("--all", action="store_true", help="protect every entry line of the newest snapshot's MEMORY.md")
+    pin.set_defaults(fn=cmd_pin)
     ground = sub.add_parser("ground", help="check hunks and stage the survivors")
     ground.add_argument("--hunks", required=True)
     ground.add_argument("--snapshot", default="latest")
