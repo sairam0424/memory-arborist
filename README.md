@@ -102,7 +102,7 @@ To remove everything: `claude plugin uninstall memory-arborist@memory-arborist`,
 - **Which memory:** the current project's directory, found from your working directory. `autoMemoryDirectory` and `CLAUDE_CODE_PROJECT_DIR_NAME` are not read; point `MEMORY_ARBORIST_MEMORY_DIR` at the directory instead.
 - **The question set:** the judge needs 25 to 32 questions. The wizard proposes recall and negative questions only; you add questions about facts you know have changed by hand (see `docs/recall-questions.md`). A memory with fewer than about 25 notes worth asking about cannot reach the floor yet.
 - **Models:** the lanes default to `sonnet` and the judge to `haiku`, aliases that resolve to different versions on different providers, so a baseline is only comparable with runs on the same provider. Pin full model ids in the two model variables for reproducible baselines.
-- **Quality is not yet measured against known-bad notes.** The checks stop unsupported edits; how many real stale notes it finds, and how often it proposes something you would reject, has been measured only on the author's own memory.
+- **Quality is not yet measured against known-bad notes.** The checks stop unsupported edits; how many real stale notes it finds, and how often it proposes something you would reject, has been measured only on the author's own memory. `dev/acceptance/run_seeded.py` is the test that will measure it (a synthetic memory with eight planted stale facts and four traps); until its first live result is published here, treat the quality as unmeasured.
 
 ## When something goes wrong
 

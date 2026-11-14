@@ -41,6 +41,9 @@ jobs:
       - name: First-run doctor
         working-directory: engine
         run: python -I -m unittest discover -s doctor/tests -p 'test_doctor_*.py'
+      - name: Seeded acceptance harness
+        working-directory: dev/acceptance
+        run: python -I -m unittest discover -s tests -p 'test_seeded.py'
 
   dco:
     name: sign-off check

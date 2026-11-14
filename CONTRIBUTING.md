@@ -14,6 +14,8 @@ Standard library only. Functions under about 50 lines, files under about 800, ea
 
 `dev/harness/` edits a temporary copy of the engine and expects the tests to fail. If you change code that a harness mutant targets, rerun it (`python3 -I dev/harness/harness_dream.py`, `python3 -I dev/harness/harness_nudge.py`, `python3 -I dev/harness/harness_wizard.py`); a surviving mutant means a missing test, unless it is listed as equivalent in the harness header.
 
+`dev/acceptance/run_seeded.py` is the seeded-bad-note test: it plants known-stale facts and traps in a synthetic memory and counts what the real pipeline fixed, missed and wrongly edited. Its unit tests (`dev/acceptance/tests`) run with a scripted model and spend nothing; the `--live` run uses your claude login and costs a few dollars at most.
+
 ## Issues and pull requests
 
 One person maintains this, so everything is read as time allows. An issue that lacks the doctor output (see the bug form) will get a request for it before anything else. A pull request is easiest to take when it is small, has a failing test first, and cites its sources; larger changes are better discussed in an issue before you write them. Everyone taking part follows `CODE_OF_CONDUCT.md`. Please never paste notes, transcripts, keys or personal data into an issue or a pull request.
