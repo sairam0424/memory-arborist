@@ -291,7 +291,7 @@ class WriteFailureTests(Base):
             result = self.build()
         finally:
             me._write_once = original
-        self.assertEqual(result.written, [sid(1)])
+        self.assertEqual(result.written, [sid(3)])
         self.assertEqual(result.failed, sid(2))
         self.assertEqual(result.skipped["write_failed"], 1)
 

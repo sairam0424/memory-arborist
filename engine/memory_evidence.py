@@ -27,9 +27,11 @@ from memory_digest import (  # noqa: E402,F401  (re-exported for callers and tes
     LINE_FORMAT,
     MAX_DIGEST_BYTES,
     Digest,
+    DEFAULT_ENTRYPOINTS,
     build_digest,
     is_human_session,
 )
+import memory_evidence_notes as en  # noqa: E402
 
 MAX_TOTAL_BYTES = 524288
 MAX_FILE_BYTES = 1024 * 1024 * 1024
@@ -42,8 +44,11 @@ EXIT_OK, EXIT_FAIL, EXIT_USAGE = 0, 1, 64
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 BuildResult = namedtuple(
-    "BuildResult", "written skipped bytes_total secret_records pii_records failed"
+    "BuildResult",
+    "written skipped bytes_total secret_records pii_records failed entrypoints unknown_keys",
+    defaults=(None, None),
 )
+ENTRYPOINT_NAME = re.compile(r"[A-Za-z0-9_-]{1,30}")
 Verify = namedtuple("Verify", "digests over_limit missing_header untrusted_lines ok")
 HEADER_LINES = (
     re.compile("^" + re.escape(HEADER) + "$"),
@@ -59,7 +64,8 @@ HEADER_LINES = (
 
 
 def list_sessions(source, now, quiet_seconds, exclude_session=None):
-    """(transcript paths oldest first, Counter of why others were left out). Top level only, symlinks never followed."""
+    """(transcript paths NEWEST first, Counter of why others were left out). Top level only, symlinks never followed.
+    Newest first because a proposal is only useful when its evidence is younger than the note it would change."""
     skipped, found = Counter(), []
     for name in sorted(os.listdir(source)):
         stem, path = name[: -len(".jsonl")], os.path.join(source, name)
@@ -81,7 +87,7 @@ def list_sessions(source, now, quiet_seconds, exclude_session=None):
                 skipped["recent"] += 1
             else:
                 found.append((info.st_mtime, name, path))
-    return [path for _mtime, _name, path in sorted(found)], skipped
+    return [path for _mtime, _name, path in sorted(found, reverse=True)], skipped
 
 
 def _only_digests(out):
@@ -132,18 +138,18 @@ def _write_once(target, text):
         fh.write(text)
 
 
-def _safe_digest(path, skipped):
+def _safe_digest(path, skipped, entrypoints=DEFAULT_ENTRYPOINTS):
     """The digest of one session, or None after counting why it could not be built."""
     try:
-        return build_digest(path)
+        return build_digest(path) if entrypoints == DEFAULT_ENTRYPOINTS else build_digest(path, entrypoints)
     except (OSError, ValueError, RecursionError, MemoryError):
         skipped["unreadable"] += 1
         return None
 
 
-def _is_human(path):
+def _is_human(path, entrypoints=DEFAULT_ENTRYPOINTS):
     try:
-        return is_human_session(path)
+        return is_human_session(path) if entrypoints == DEFAULT_ENTRYPOINTS else is_human_session(path, entrypoints)
     except (OSError, ValueError, RecursionError, MemoryError):
         return False
 
@@ -155,6 +161,7 @@ def build_all(
     now=None,
     quiet_seconds=QUIET_SECONDS,
     exclude_session=None,
+    entrypoints=DEFAULT_ENTRYPOINTS,
 ):
     _check_dirs(source, out)
     paths, skipped = list_sessions(
@@ -162,6 +169,7 @@ def build_all(
     )
     mc.makedirs_private(out)
     total, written, secret, pii, failed = _dir_bytes(out), [], 0, 0, None
+    foreign, unknown = Counter(), Counter()
     for path in paths:
         if len(written) >= limit:
             break
@@ -170,10 +178,13 @@ def build_all(
         if os.path.lexists(target):
             skipped["existing"] += 1
             continue
-        digest = _safe_digest(path, skipped)
+        digest = _safe_digest(path, skipped, entrypoints)
         if digest is None:
             continue
         secret, pii = secret + digest.secret_records, pii + digest.pii_records
+        unknown.update(dict(digest.unknown_keys))
+        if digest.skip == "non_cli" and digest.entrypoint:
+            foreign[digest.entrypoint] += 1
         if digest.skip:
             skipped[digest.skip] += 1
             continue
@@ -192,7 +203,7 @@ def build_all(
             break
         total += size
         written.append(session_id)
-    return BuildResult(written, skipped, _dir_bytes(out), secret, pii, failed)
+    return BuildResult(written, skipped, _dir_bytes(out), secret, pii, failed, foreign, unknown)
 
 
 def _sample(paths, count):
@@ -202,7 +213,7 @@ def _sample(paths, count):
 
 
 def scan_sources(
-    source, sample, now=None, quiet_seconds=QUIET_SECONDS, exclude_session=None
+    source, sample, now=None, quiet_seconds=QUIET_SECONDS, exclude_session=None, entrypoints=DEFAULT_ENTRYPOINTS
 ):
     """Counts only: how many sampled sessions were read and how many of their texts hold a secret shape or PII."""
     if not os.path.isdir(source):
@@ -213,9 +224,9 @@ def scan_sources(
         source, time.time() if now is None else now, quiet_seconds, exclude_session
     )
     scanned = secret = pii = 0
-    human = [path for path in paths if _is_human(path)]
+    human = [path for path in paths if _is_human(path, entrypoints)]
     for path in _sample(human, sample):
-        digest = _safe_digest(path, Counter())
+        digest = _safe_digest(path, Counter(), entrypoints)
         if digest is not None and digest.skip in (None, "empty"):
             scanned, secret, pii = (
                 scanned + 1,
@@ -305,6 +316,12 @@ def _finite_now(text):
     return value
 
 
+def _entrypoint_name(text):
+    if not ENTRYPOINT_NAME.fullmatch(text):
+        raise argparse.ArgumentTypeError("an entrypoint name is 1 to 30 letters, digits, underscores or hyphens")
+    return text
+
+
 class _Parser(argparse.ArgumentParser):
     def error(self, message):
         self.print_usage(sys.stderr)
@@ -339,10 +356,14 @@ def _quiet(args):
     return max(MIN_QUIET_SECONDS, args.quiet_seconds)
 
 
+def _entrypoints(args):
+    return DEFAULT_ENTRYPOINTS | frozenset(args.include_entrypoint)
+
+
 def cmd_scan_sources(args):
     source, _out = _paths(args)
     scanned, secret, pii = scan_sources(
-        source, args.sample, args.now, _quiet(args), args.exclude_session
+        source, args.sample, args.now, _quiet(args), args.exclude_session, _entrypoints(args)
     )
     print(
         "SOURCES scanned=%d secret_records=%d pii_records=%d" % (scanned, secret, pii)
@@ -353,7 +374,7 @@ def cmd_scan_sources(args):
 def cmd_build(args):
     source, out = _paths(args)
     res = build_all(
-        source, out, args.limit, args.now, _quiet(args), args.exclude_session
+        source, out, args.limit, args.now, _quiet(args), args.exclude_session, _entrypoints(args)
     )
     other = {k: v for k, v in res.skipped.items() if k != "existing"}
     print(
@@ -367,6 +388,8 @@ def cmd_build(args):
             _skip_text(other),
         )
     )
+    for line in en.note_lines(res.entrypoints, res.unknown_keys):
+        print(line)
     if res.failed:
         partial = os.path.join(out, res.failed + ".md")
         print("WRITE_FAILED %s.md may be incomplete; check it with verify, then remove it yourself: rm %s" % (res.failed, shlex.quote(partial)))
@@ -422,6 +445,14 @@ def build_parser():
         "--exclude-session",
         default=None,
         help="session id to leave out (the running one)",
+    )
+    common.add_argument(
+        "--include-entrypoint",
+        action="append",
+        default=[],
+        type=_entrypoint_name,
+        metavar="NAME",
+        help="also treat sessions with this entrypoint as typed by a person (default: only cli); repeatable",
     )
     common.add_argument("--now", type=_finite_now, default=None, help=argparse.SUPPRESS)
     for name, fn, extra in (

@@ -85,9 +85,19 @@ ASSISTANT_PROVENANCE_KEYS = frozenset(
 NOT_HUMAN_PREFIXES = ("This session is being continued", "Stop hook feedback")
 OBSERVER_DIRS = frozenset({"claude-mem", ".claude-mem"})
 
+DEFAULT_ENTRYPOINTS = frozenset({"cli"})  # the entrypoints that count as a person at a terminal
+SAFE_NAME = re.compile(r"[^A-Za-z0-9_-]+")
+MAX_UNKNOWN_KEYS_PER_RECORD = 8
 Digest = namedtuple(
-    "Digest", "session_id text skip kept secret_records pii_records oversize_records"
+    "Digest",
+    "session_id text skip kept secret_records pii_records oversize_records entrypoint unknown_keys",
+    defaults=(None, ()),
 )
+
+
+def _safe_name(value):
+    """A name from a transcript, cut to letters, digits, underscore and hyphen so it can be printed safely."""
+    return SAFE_NAME.sub("", str(value))[:30] or "unnamed"
 Line = namedtuple("Line", "index text")
 
 
@@ -200,7 +210,10 @@ def _observer_cwd(cwd):
 class _Session:
     """What one pass over a transcript collects; only the first and last KEEP_LINES lines per origin are kept."""
 
-    def __init__(self):
+    def __init__(self, allowed=DEFAULT_ENTRYPOINTS):
+        self.allowed = allowed
+        self.entrypoint = None
+        self.unknown_keys = Counter()
         self.head = {"U": [], "A": []}
         self.tail = {"U": deque(maxlen=KEEP_LINES), "A": deque(maxlen=KEEP_LINES)}
         self.seen = Counter()
@@ -216,8 +229,12 @@ class _Session:
 
     def note_session_fields(self, rec):
         entry = rec.get("entrypoint")
-        self.saw_cli = self.saw_cli or entry == "cli"
-        self.headless = self.headless or entry not in (None, "cli")
+        name = entry if isinstance(entry, str) else None
+        self.saw_cli = self.saw_cli or name in self.allowed
+        foreign = entry is not None and name not in self.allowed
+        self.headless = self.headless or foreign
+        if foreign and self.entrypoint is None:
+            self.entrypoint = _safe_name(entry)
         cwd = rec.get("cwd")
         if isinstance(cwd, str):
             self.cwd = self.cwd or cwd
@@ -225,7 +242,19 @@ class _Session:
         stamp = str(rec.get("timestamp", ""))[:10]
         self.date = self.date or (stamp if DATE_ONLY.match(stamp) else None)
 
+    def note_unknown_keys(self, rec):
+        """Count, by name, the keys that make a person's record untrusted (a newer Claude Code may add some)."""
+        if rec.get("type") != "user" or not isinstance(rec.get("message"), dict):
+            return
+        if rec.get("isSidechain") or rec.get("isMeta") or rec.get("isCompactSummary") or _is_tool_result(rec):
+            return
+        if rec.get("origin") not in (None, {"kind": "human"}):
+            return
+        for key in sorted(set(rec) - USER_KEYS)[:MAX_UNKNOWN_KEYS_PER_RECORD]:
+            self.unknown_keys[_safe_name(key)] += 1
+
     def add(self, rec, index):
+        self.note_unknown_keys(rec)
         origin, text = _record_text(rec)
         if not origin or not text:
             return
@@ -259,8 +288,8 @@ def _lines(fh):
             yield raw
 
 
-def _read_session(path):
-    session = _Session()
+def _read_session(path, allowed=DEFAULT_ENTRYPOINTS):
+    session = _Session(allowed)
     with open(path, "rb") as fh:
         for index, raw in enumerate(_lines(fh)):
             if raw is None:
@@ -328,7 +357,7 @@ def _header(session_id, session, kept_users, kept_assistants):
     )
 
 
-def _skip_reason(session, chosen):
+def _skip_reason(session, chosen, kept_users=1):
     for flag, reason in (
         (session.marker, "marker"),
         (session.headless or not session.saw_cli, "non_cli"),
@@ -336,17 +365,19 @@ def _skip_reason(session, chosen):
     ):
         if flag:
             return reason
-    return None if chosen else "empty"
+    if not chosen:
+        return "empty"
+    return None if kept_users else "no_user"  # a digest nobody typed in cannot support a quote
 
 
-def build_digest(path):
+def build_digest(path, allowed=DEFAULT_ENTRYPOINTS):
     """Digest for one transcript file. `skip` names why no digest is wanted; counters are still reported."""
     session_id = os.path.basename(path)[: -len(".jsonl")]
     if not SESSION_ID.fullmatch(session_id):
         return Digest(session_id, None, "not_uuid", 0, 0, 0, 0)
-    session = _read_session(path)
+    session = _read_session(path, allowed)
     chosen, kept_users, kept_assistants = _select(session)
-    skip = _skip_reason(session, chosen)
+    skip = _skip_reason(session, chosen, kept_users)
     text = None
     if not skip:
         body = "\n".join(line.text for line in chosen)
@@ -364,10 +395,12 @@ def build_digest(path):
         session.secret,
         session.pii,
         session.oversize,
+        session.entrypoint,
+        tuple(sorted(session.unknown_keys.items())),
     )
 
 
-def is_human_session(path):
+def is_human_session(path, allowed=DEFAULT_ENTRYPOINTS):
     """Cheap check from the first records: False for headless (sdk-*) and observer sessions, and when no record names an entrypoint."""
     with open(path, "rb") as fh:
         for index, raw in enumerate(_lines(fh)):
@@ -380,5 +413,6 @@ def is_human_session(path):
             except (ValueError, RecursionError):
                 continue
             if isinstance(rec, dict) and "entrypoint" in rec:
-                return rec["entrypoint"] == "cli"
+                entry = rec["entrypoint"]
+                return isinstance(entry, str) and entry in allowed
     return False

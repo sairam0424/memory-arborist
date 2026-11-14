@@ -364,10 +364,10 @@ class BuildTests(Base):
         defaults.update(kw)
         return me.build_all(self.source, self.out, **defaults)
 
-    def test_digests_are_written_oldest_first_and_private(self):
+    def test_digests_are_written_newest_first_and_private(self):
         self.seed()
         result = self.build(limit=2)
-        self.assertEqual(result.written, [sid(1), sid(2)])
+        self.assertEqual(result.written, [sid(4), sid(3)])
         for name in self.digests():
             self.assertEqual(
                 stat.S_IMODE(os.stat(os.path.join(self.out, name)).st_mode), 0o600
@@ -379,7 +379,7 @@ class BuildTests(Base):
         self.build(limit=2)
         before = {name: sha(os.path.join(self.out, name)) for name in self.digests()}
         again = self.build(limit=2)
-        self.assertEqual(again.written, [sid(3), sid(4)])
+        self.assertEqual(again.written, [sid(2), sid(1)])
         self.assertEqual(again.skipped["existing"], 2)
         for name, digest in before.items():
             self.assertEqual(sha(os.path.join(self.out, name)), digest)
