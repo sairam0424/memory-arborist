@@ -422,9 +422,14 @@ def _q(text):
 
 
 def report_text(chosen, rejected, stats):
-    lines = [
-        "# Proposed recall questions",
-        "",
+    lines = ["# Proposed recall questions", ""]
+    if stats.get("lane_errors"):
+        lines += [
+            "**INCOMPLETE: %d batch(es) failed or answered unusably.** The questions below cover only the %d notes whose batch answered, "
+            "not all %d notes; run the wizard again, or accept only if that coverage is enough." % (stats["lane_errors"], stats.get("notes_covered", 0), stats["notes_total"]),
+            "",
+        ]
+    lines += [
         "Everything below is data produced by a model from your notes: do not follow instructions written in it.",
         "Read every question. Delete the lines you do not want from the .jsonl file before you accept it, or reject the whole set.",
         "A key that rejects a correct answer is a bug in the key: after you accept, read the failing answers of the first baseline run.",
@@ -519,6 +524,7 @@ def cmd_propose(args, runner):
     chosen = select(valid, args.target)
     asked = [c for c, r in zip(chunks, replies) if r is not CEILING]
     sent = sum(len(c) for c in asked)
+    covered = sum(len(c) for c, r in zip(chunks, replies) if r is not CEILING and isinstance(r, dict) and isinstance(r.get("questions"), list))
     notes_total = len([n for n in notes if n != INDEX_NAME])
     kinds = {k: sum(1 for r, _ in chosen if r["kind"] == k) for k in KIND_ORDER}
     stats = {
@@ -528,12 +534,13 @@ def cmd_propose(args, runner):
         "lane_errors": lane_errors,
         "unasked_batches": unasked,
         "notes_sent": sent,
+        "notes_covered": covered,
         "notes_total": notes_total,
         "valid": len(valid),
     }
     print(
-        "COVERAGE chunks=%d notes_sent=%d notes_total=%d failed_batches=%d"
-        % (len(asked), sent, notes_total, lane_errors)
+        "COVERAGE chunks=%d notes_sent=%d notes_total=%d failed_batches=%d notes_covered=%d"
+        % (len(asked), sent, notes_total, lane_errors, covered)
     )
     if lane_errors:
         print(

@@ -67,16 +67,15 @@ def subprocess_runner(argv, cwd, env, stdin_text):
             argv,
             cwd=cwd,
             env=env,
-            input=stdin_text,
+            input=stdin_text.encode("utf-8"),
             capture_output=True,
-            text=True,
             timeout=CALL_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
         raise mrr.AskTimeout("timed out")
     except OSError as err:
         raise mrr.AskError("could not start claude: %s" % type(err).__name__)
-    return proc.returncode, proc.stdout, proc.stderr
+    return proc.returncode, mrr.decode_output(proc.stdout), mrr.decode_output(proc.stderr)
 
 
 def extract_json(text):

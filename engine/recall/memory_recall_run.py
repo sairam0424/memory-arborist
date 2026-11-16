@@ -8,6 +8,8 @@ excerpt of each answer are kept.
 """
 
 import hashlib
+import math
+import argparse
 import io
 import json
 import os
@@ -245,6 +247,22 @@ def child_env(environ=None):
     return {key: source[key] for key in names if key in source}
 
 
+def decode_output(data):
+    """What a child printed, as text: bytes that are not UTF-8 become replacement characters instead of ending the run."""
+    return data.decode("utf-8", errors="replace") if isinstance(data, bytes) else (data or "")
+
+
+def positive_usd(text):
+    """argparse type for a cost limit: a finite number above zero (nan, inf, zero and negatives would switch the ceiling off)."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a number of USD")
+    if not (math.isfinite(value) and value > 0):
+        raise argparse.ArgumentTypeError("must be a positive, finite number of USD")
+    return value
+
+
 def subprocess_runner(argv, cwd, env):
     try:
         proc = subprocess.run(
@@ -253,20 +271,19 @@ def subprocess_runner(argv, cwd, env):
             env=env,
             stdin=subprocess.DEVNULL,
             capture_output=True,
-            text=True,
             timeout=CALL_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
         raise AskTimeout("timed out")
     except OSError as err:
         raise AskError("could not start claude: %s" % type(err).__name__)
-    return proc.returncode, proc.stdout, proc.stderr
+    return proc.returncode, decode_output(proc.stdout), decode_output(proc.stderr)
 
 
 def parse_output(stdout):
     try:
         data = json.loads(stdout)
-    except ValueError:
+    except (ValueError, RecursionError):  # deeply nested output raises RecursionError, not ValueError
         raise AskError("output is not JSON")
     items = [
         i for i in (data if isinstance(data, list) else [data]) if isinstance(i, dict)
@@ -279,7 +296,7 @@ def parse_output(stdout):
         None,
     )
     tools = (
-        sorted(init["tools"]) if init and isinstance(init.get("tools"), list) else None
+        sorted(str(tool) for tool in init["tools"]) if init and isinstance(init.get("tools"), list) else None
     )
     return Answer(
         str(result.get("result", "")),
@@ -332,6 +349,8 @@ def failed_run_answer(stdout):
 
 
 FAILURE_LINE_CHARS = 120
+ARN = re.compile(r"arn:[a-z0-9-]+:[^\s,;\"')]+")
+ACCOUNT_ID = re.compile(r"(?<!\d)\d{12}(?!\d)")  # an AWS account id
 # The redactor withholds any line that mentions a credential cue word ("Invalid API key" included), so say how to read it.
 WITHHELD_FAILURE_LINE = "[withheld: the line mentions a credential; run 'claude -p hi' in a terminal to read it]"
 
@@ -344,6 +363,7 @@ def failure_message(code, stdout, stderr):
     line = next((ln.strip() for ln in source.splitlines() if ln.strip()), "")
     if not line:
         return "claude exited with %d" % code
+    line = ARN.sub("<arn>", ACCOUNT_ID.sub("<account-id>", line))  # account ids and role names are not for a public issue
     return "claude exited with %d: %s" % (
         code,
         mr.sanitize(line, FAILURE_LINE_CHARS).excerpt or WITHHELD_FAILURE_LINE,

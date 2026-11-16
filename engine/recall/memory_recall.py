@@ -26,7 +26,7 @@ import memory_egress as eg  # noqa: E402
 import memory_recall_run as mrr  # noqa: E402
 import memory_snapshot as sn  # noqa: E402
 
-EXIT_OK, EXIT_FAIL, EXIT_FLOOR, EXIT_USAGE = 0, 1, 3, 64
+EXIT_OK, EXIT_FAIL, EXIT_FLOOR, EXIT_INCOMPLETE, EXIT_USAGE = 0, 1, 3, 5, 64
 EMPTY_PASS_LIMIT, NOISE_LIMIT = 3, 2
 DEFAULT_MIN, DEFAULT_WORKERS, DEFAULT_TOTAL_USD = 20, 4, 5.0
 ARMS = ("live", "staged", "empty", "baseline")
@@ -320,10 +320,18 @@ def finish_staged(args, questions, results):
     ]
     print("DRIFT fixed=%d of %d" % (len(fixed), len(drift)))
     noise_line(runs)
+    unverified = sorted(key for key in stable_passers(baseline) if any(key not in verdicts(run) for run in runs))
+    print("UNVERIFIED n=%d ids=%s" % (len(unverified), ",".join(unverified) or "-"))
+    if unverified:
+        print(
+            "INCOMPLETE %d question(s) that passed at baseline could not be graded on the staged copy, so REGRESSIONS may be under-reported; "
+            "run the check again" % len(unverified)
+        )
     return (
         not lost and not back,
-        "staged regressions=%d resurrected=%d drift_fixed=%d"
-        % (len(lost), len(back), len(fixed)),
+        "staged regressions=%d resurrected=%d drift_fixed=%d unverified=%d"
+        % (len(lost), len(back), len(fixed), len(unverified)),
+        bool(unverified),
     )
 
 
@@ -406,8 +414,8 @@ def build_parser():
     )
     p.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     p.add_argument("--model", default=mrr.DEFAULT_MODEL)
-    p.add_argument("--per-q-usd", type=float, default=0.25)
-    p.add_argument("--total-max-usd", type=float, default=DEFAULT_TOTAL_USD)
+    p.add_argument("--per-q-usd", type=mrr.positive_usd, default=0.25)
+    p.add_argument("--total-max-usd", type=mrr.positive_usd, default=DEFAULT_TOTAL_USD)
     p.add_argument("--no-log", action="store_true")
     p.add_argument("--show-failed", action="store_true", help="print a short sanitised excerpt of each failed answer (to see why a key did not match)")
     p.add_argument("--allow-secret-shapes", action="store_true", help="send the notes even though they hold block-tier secret shapes or entries that could not be scanned (default: refuse, exit 4)")
@@ -455,11 +463,11 @@ def _judge_in(args, runner, questions, ops, tmp, spend):
     if graded < args.floor:
         print("FLOOR graded=%d is below --min %d" % (graded, args.floor))
         return EXIT_FLOOR
-    ok, subject = True, "%s run" % args.arm
+    ok, subject, incomplete = True, "%s run" % args.arm, False
     if args.arm == "baseline":
         ok, subject = finish_baseline(args, questions, results, labels, spend, ops)
     elif args.arm == "staged":
-        ok, subject = finish_staged(args, questions, results)
+        ok, subject, incomplete = finish_staged(args, questions, results)
     elif args.arm == "empty":
         ok = empty_verdict(questions, results["empty"][0])[0] <= EMPTY_PASS_LIMIT
     else:
@@ -475,6 +483,8 @@ def _judge_in(args, runner, questions, ops, tmp, spend):
                 "Questions: %d" % len(questions),
             ],
         )
+    if ok and incomplete:
+        return EXIT_INCOMPLETE
     return EXIT_OK if ok else EXIT_FAIL
 
 

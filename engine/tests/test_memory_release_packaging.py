@@ -148,6 +148,23 @@ class SkillTests(unittest.TestCase):
         self.assertIn(invocation, th.read(os.path.join(ROOT, "README.md")))
 
 
+class SkillTextHazardTests(unittest.TestCase):
+    """Claude Code expands $1, $2 ... and $ARGUMENTS inside a skill before the model reads it. The first tester saw dollar figures
+    turn into stray words ("about person", "You.33"), so a skill text must never contain one."""
+
+    def test_the_skill_has_no_dollar_digit_or_arguments_placeholder(self):
+        text = th.read(os.path.join(ROOT, "skills", "tend", "SKILL.md"))
+        self.assertEqual(re.findall(r"\$(?:\d|ARGUMENTS)", text), [])
+
+    def test_every_script_the_skill_names_is_written_with_the_folder_it_really_lives_in(self):
+        text = th.read(os.path.join(ROOT, "skills", "tend", "SKILL.md"))
+        for name in set(re.findall(r"`((?:recall/|dream/|doctor/)?memory_[a-z_]+\.py)", text)):
+            folder, _sep, script = name.rpartition("/")
+            expected = os.path.join(ROOT, "engine", folder, script)
+            self.assertTrue(os.path.isfile(expected), name)
+        self.assertNotIn("dream/memory_dream.py", text)  # memory_dream.py sits in engine/, not engine/dream/
+
+
 class ChangelogAndReadmeTests(unittest.TestCase):
     def setUp(self):
         self.plugin = load_json(".claude-plugin", "plugin.json")
