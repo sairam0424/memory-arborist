@@ -6,9 +6,9 @@ answers {"permissionDecision": "ask"}; for everything else it prints nothing. It
 and always exits 0, so a problem in the hook can never block a session.
 
 What this is and is not: Claude Code shows the prompt in its default and accept-edits permission modes and an "ask" beats a
-settings allow rule, and its documentation says auto mode normally shows it too (with exceptions); bypassPermissions mode skips
-prompts, a headless run counts an ask as a refusal, and the disableAllHooks setting switches the hook off, so it cannot force a
-person to look. It also matches the command text, so a command assembled at run time (eval, a variable holding the
+settings allow rule, and its documentation says auto mode normally shows it too (with exceptions); a headless run counts an ask as a refusal (and one was still
+enforced under bypassPermissions in a test on 2.1.325; an interactive bypass session is untested), and the disableAllHooks
+setting switches the hook off, so it cannot force a person to look. It also matches the command text, so a command assembled at run time (eval, a variable holding the
 script name) is not recognised: it is a seat belt against a slip, not a sandbox against an attacker.
 
     hook:  python3 -B -I ${CLAUDE_PLUGIN_ROOT}/engine/memory_confirm_gate.py     (reads the PreToolUse JSON on stdin)
