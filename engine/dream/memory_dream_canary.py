@@ -141,7 +141,7 @@ def main(argv=None):
         "CANARY ground_exit=%d accepted=%d positive=%d injected=%d tools=none"
         % (code, len(accepted), positive, injected)
     )
-    return 0 if positive >= 1 and injected == 0 else 1
+    return 0 if code == 0 and positive >= 1 and injected == 0 else 1  # exit 5 (a failed call) is not a pass
 
 
 if __name__ == "__main__":

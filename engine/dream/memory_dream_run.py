@@ -81,6 +81,8 @@ def _finder_stage(digest_texts, index_text, notes, ctx):
         items = answer.get("findings") if isinstance(answer, dict) else None
         if not isinstance(items, list):
             errors += 1
+            if answer is not None:  # a failed call or no JSON already printed its own line
+                print("LANE-ERROR the finder's answer held no findings list")
             continue
         found += [f for f in items[:MAX_FINDINGS_PER_LANE] if _valid_finding(f, notes)]
     return found, errors
@@ -135,11 +137,14 @@ def _writer_stage(tasks, ctx):
         items = answer.get("hunks") if isinstance(answer, dict) else None
         if not isinstance(items, list):
             errors += 1
+            if answer is not None:
+                print("LANE-ERROR the writer's answer held no hunks list")
             continue
         kept = 0
         for item in items:
             if not _valid_hunk(item):
                 errors += 1
+                print("LANE-ERROR the writer proposed a malformed hunk")
             elif kept < MAX_HUNKS_PER_WRITER:
                 hunks.append(dict(item, kind=kind, file=name))
                 kept += 1
@@ -166,16 +171,19 @@ def _evidence_lines(hunk, digests_by_session):
 
 
 def _verifier_stage(hunks, notes, digests_by_session, ctx):
-    """[(kept, why)] in hunk order; anything but an explicit keep is a rejection."""
+    """[(kept, why, failed)] in hunk order; anything but an explicit keep is a rejection, and a call that failed or gave no
+    keep-or-reject verdict is also counted as failed, so a run whose verifier never answered cannot look like a clean one."""
 
     def verify(hunk):
         prompt = lanes.verifier_prompt(
             hunk, _evidence_lines(hunk, digests_by_session), notes.get(hunk["file"], ""), ctx.get("note_dates", {}).get(hunk["file"])
         )
         answer = lanes.run_lane(prompt, *ctx["lane"])
-        if not isinstance(answer, dict):
-            return False, "no usable verdict"
-        return answer.get("verdict") == "keep", str(answer.get("why", ""))[:300]
+        if not isinstance(answer, dict) or answer.get("verdict") not in ("keep", "reject"):
+            if isinstance(answer, dict):
+                print("LANE-ERROR the verifier's answer held no keep-or-reject verdict")
+            return False, "no usable verdict", True
+        return answer["verdict"] == "keep", str(answer.get("why", ""))[:300], False
 
     return _pool_map(ctx["workers"], verify, hunks)
 
@@ -215,14 +223,15 @@ def _run_stages(ctx, texts, notes, index_text, by_session, max_notes, spend):
     if over_cap:
         print("HUNK-CAP dropped=%d (at most %d per writer)" % (over_cap, MAX_HUNKS_PER_WRITER))
     verdicts = _verifier_stage(proposed, notes, by_session, ctx)
-    kept = [dict(h, id="h%d" % (i + 1)) for i, (h, (ok, _why)) in enumerate(zip(proposed, verdicts)) if ok]
-    trace = {"findings": findings, "proposed": [dict(h, kept=ok, verifier_why=why) for h, (ok, why) in zip(proposed, verdicts)]}
+    kept = [dict(h, id="h%d" % (i + 1)) for i, (h, (ok, _why, _failed)) in enumerate(zip(proposed, verdicts)) if ok]
+    trace = {"findings": findings, "proposed": [dict(h, kept=ok, verifier_why=why) for h, (ok, why, _failed) in zip(proposed, verdicts)]}
+    verifier_errors = sum(1 for _ok, _why, failed in verdicts if failed)
     stats = {
         "findings": len(findings),
         "writers": len(tasks),
         "proposed": len(proposed),
         "rejected_by_verifier": len(proposed) - len(kept),
-        "lane_errors": finder_errors + writer_errors,
+        "lane_errors": finder_errors + writer_errors + verifier_errors,
         "over_cap": over_cap,
         "cost": round(spend.total, 4),
     }
@@ -291,7 +300,7 @@ def cmd_run(args, runner):
     incomplete = s["lane_errors"]
     if incomplete:
         print(
-            "INCOMPLETE %d model call(s) failed (see the LANE-ERROR lines above): this run may be missing proposals, so "
+            "INCOMPLETE %d model call(s) failed or answered unusably (see the LANE-ERROR lines above): this run may be missing proposals, so "
             "'accepted 0' does not mean there was nothing to change" % incomplete
         )
     path = write_hunks_file(ops, result.hunks, args.now)

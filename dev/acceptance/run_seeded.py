@@ -122,7 +122,7 @@ def build_parser():
 def main(argv=None, runner=None):
     args = build_parser().parse_args(argv)
     root = tempfile.mkdtemp(prefix="seeded_")
-    if not args.live and runner is None:
+    if not args.live:
         manifest = seeded.build_fixture(root)
         print(
             "PLAN %d stale notes, %d steady notes, %d traps; fixture in %s"
@@ -145,8 +145,10 @@ def main(argv=None, runner=None):
         return 0
     result = run(root, runner or lanes.subprocess_runner, args.model, args.max_usd)
     print(render(result))
+    if result["exit"] == drun.EXIT_INCOMPLETE:
+        print("INCOMPLETE: some model calls failed, so these numbers under-report what the lanes can do; fix the cause and run again")
     print("work folder: %s" % root)
-    return 0 if result["exit"] in (0, drun.EXIT_INCOMPLETE) else 1
+    return 0 if result["exit"] == 0 else 1
 
 
 if __name__ == "__main__":

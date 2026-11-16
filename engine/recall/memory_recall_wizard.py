@@ -37,7 +37,7 @@ import memory_recall_run as mrr  # noqa: E402
 import memory_redact as mr  # noqa: E402
 import memory_snapshot as sn  # noqa: E402
 
-EXIT_OK, EXIT_FAIL, EXIT_FLOOR = 0, 1, 3
+EXIT_OK, EXIT_FAIL, EXIT_FLOOR, EXIT_INCOMPLETE = 0, 1, 3, 5
 ENV_LANE_MODEL = "MEMORY_ARBORIST_LANE_MODEL"
 # An alias, see memory_recall_run.DEFAULT_MODEL: it resolves per provider. Pin a full model id with the environment variable.
 DEFAULT_MODEL = os.environ.get(ENV_LANE_MODEL) or "sonnet"
@@ -532,9 +532,14 @@ def cmd_propose(args, runner):
         "valid": len(valid),
     }
     print(
-        "COVERAGE chunks=%d notes_sent=%d notes_total=%d"
-        % (len(asked), sent, notes_total)
+        "COVERAGE chunks=%d notes_sent=%d notes_total=%d failed_batches=%d"
+        % (len(asked), sent, notes_total, lane_errors)
     )
+    if lane_errors:
+        print(
+            "INCOMPLETE %d of %d batches failed or answered unusably: the questions cover only the notes whose batch answered"
+            % (lane_errors, len(asked))
+        )
     print(
         "PROPOSED candidates=%d valid=%d chosen=%d %s cost_usd=%.4f"
         % (
@@ -581,7 +586,10 @@ def cmd_propose(args, runner):
             "SHORT %d of the %d questions the judge needs: add some by hand (docs/recall-questions.md) or run again"
             % (len(chosen), mrr.MIN_QUESTIONS)
         )
-        return EXIT_FLOOR
+        return EXIT_INCOMPLETE if lane_errors else EXIT_FLOOR
+    if lane_errors:
+        print("NEXT run it again, or read the REPORT and accept only if the notes it covers are enough: accept --file <PROPOSAL> --expect %s" % digest)
+        return EXIT_INCOMPLETE
     print("NEXT read the REPORT, then: accept --file <PROPOSAL> --expect %s" % digest)
     return EXIT_OK
 

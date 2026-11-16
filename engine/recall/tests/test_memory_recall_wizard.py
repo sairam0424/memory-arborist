@@ -881,7 +881,9 @@ class ProposeTests(Base):
         code, out, _err, _runner = self.propose(
             runner=ScriptedRunner(lambda names, prompt: "no json here")
         )
-        self.assertEqual(code, 3)
+        self.assertEqual(code, 5)  # was 3 (SHORT): a failed batch is incomplete, not merely short
+        self.assertIn("INCOMPLETE 2 of 2 batches failed or answered unusably", out)
+        self.assertIn("failed_batches=2", out)
         self.assertIn(
             "lane_errors=2", th.read(self.proposal_path(out)[: -len(".jsonl")] + ".md")
         )

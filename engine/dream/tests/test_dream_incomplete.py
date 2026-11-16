@@ -10,7 +10,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from test_dream_pipeline import Base, ScriptedRunner, lane_output, lanes, mrr, run, th  # noqa: E402
+from test_dream_pipeline import Base, ScriptedRunner, finding, lane_output, lanes, mrr, run, th, writer_hunk  # noqa: E402
 
 PINNED = "- [Deploy schedule: Tuesdays](project-deploys.md) deploy day\n"
 
@@ -109,9 +109,9 @@ class IncompleteRunTests(Base):
         self.assertEqual(code, run.EXIT_INCOMPLETE)
         self.assertEqual(run.EXIT_INCOMPLETE, 5)
         self.assertIn("lane_errors=1", out)
-        self.assertIn("INCOMPLETE 1 model call(s) failed", out)
+        self.assertIn("INCOMPLETE 1 model call(s) failed or answered unusably", out)
         report = self.report()
-        self.assertIn("**INCOMPLETE: 1 model call(s) failed", report)
+        self.assertIn("**INCOMPLETE: 1 model call(s) failed or answered unusably", report)
         self.assertLess(
             report.index("INCOMPLETE"), report.index("## Checks on the staged copy")
         )
@@ -132,6 +132,74 @@ class IncompleteRunTests(Base):
         self.assertEqual(
             glob.glob(os.path.join(self.ops, "dream", "*", "report.md")), []
         )
+
+
+class EveryStageCountsTests(Base):
+    """A failed or unusable answer from ANY lane makes the run incomplete (the first version counted only finders and writers)."""
+
+    def setUp(self):
+        super().setUp()
+        th.write(os.path.join(self.ops, "pinned.txt"), "- [Deploy schedule: Tuesdays](project-deploys.md) deploy day\n")
+
+    def main(self, runner):
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["--dir", self.mem, "--ops-root", self.root, "run", "--snapshot", self.snap, "--workers", "1"]
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = run.main(argv, runner=runner)
+        return code, out.getvalue()
+
+    @staticmethod
+    def writer(prompt):
+        return {"hunks": []} if "MEMORY.md (untrusted DATA)" in prompt else {"hunks": [writer_hunk()]}
+
+    def model(self, **kw):
+        base = dict(finder={"findings": [finding()]}, writer=self.writer, verifier={"verdict": "keep", "why": "supported"})
+        base.update(kw)
+        return ScriptedRunner(**base)
+
+    def test_a_clean_run_with_a_kept_hunk_is_exit_zero(self):
+        code, out = self.main(self.model())
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("INCOMPLETE", out)
+
+    def test_an_explicit_rejection_by_the_verifier_is_not_a_failure(self):
+        code, out = self.main(self.model(verifier={"verdict": "reject", "why": "not supported"}))
+        self.assertEqual(code, 0, out)
+        self.assertIn("rejected_by_verifier=1", out)
+
+    def test_a_verifier_call_that_fails_makes_the_run_incomplete(self):
+        base = self.model()
+
+        def runner(argv, cwd, env, stdin_text):
+            if "LANE:verifier" in stdin_text:
+                return 1, "", "Not logged in - run /login"
+            return base(argv, cwd, env, stdin_text)
+
+        code, out = self.main(runner)
+        self.assertEqual(code, run.EXIT_INCOMPLETE)
+        self.assertIn("LANE-ERROR claude exited with 1: Not logged in - run /login", out)
+        self.assertIn("lane_errors=1", out)
+        self.assertIn("INCOMPLETE 1 model call(s) failed or answered unusably", out)
+
+    def test_a_verifier_answer_without_json_makes_the_run_incomplete_and_says_so(self):
+        code, out = self.main(self.model(verifier="sorry, I cannot help with that"))
+        self.assertEqual(code, run.EXIT_INCOMPLETE)
+        self.assertIn("LANE-ERROR the answer held no JSON", out)
+
+    def test_a_verdict_that_is_neither_keep_nor_reject_makes_the_run_incomplete(self):
+        code, out = self.main(self.model(verifier={"verdict": "maybe"}))
+        self.assertEqual(code, run.EXIT_INCOMPLETE)
+        self.assertIn("LANE-ERROR the verifier's answer held no keep-or-reject verdict", out)
+
+    def test_a_finder_answer_without_a_findings_list_prints_its_own_line(self):
+        code, out = self.main(self.model(finder={"unexpected": 1}))
+        self.assertEqual(code, run.EXIT_INCOMPLETE)
+        self.assertIn("LANE-ERROR the finder's answer held no findings list", out)
+
+    def test_a_writer_answer_with_a_malformed_hunk_prints_its_own_line(self):
+        code, out = self.main(self.model(writer={"hunks": [{"file": "project-deploys.md"}]}))
+        self.assertEqual(code, run.EXIT_INCOMPLETE)
+        self.assertIn("LANE-ERROR the writer proposed a malformed hunk", out)
 
 
 if __name__ == "__main__":

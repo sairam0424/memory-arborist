@@ -200,7 +200,7 @@ def _hunk_section(hunk):
 
 
 INCOMPLETE_BANNER = (
-    "**INCOMPLETE: %d model call(s) failed during this run.** A missing proposal below does not mean the note was fine: "
+    "**INCOMPLETE: %d model call(s) failed or answered unusably during this run.** A missing proposal below does not mean the note was fine: "
     "read the LANE-ERROR lines of the run, fix the cause (often a login or a flag) and run it again before you rely on this report.\n"
 )
 

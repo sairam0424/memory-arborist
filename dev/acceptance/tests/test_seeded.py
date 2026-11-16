@@ -359,7 +359,7 @@ class CommandTests(unittest.TestCase):
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = rs.main([])
+            code = rs.main([], runner=runner)  # a runner is passed on purpose: without --live it must never be called
         self.assertEqual(code, 0)
         self.assertIn("PLAN 8 stale notes, 8 steady notes, 4 traps", out.getvalue())
         self.assertIn("ESTIMATE seeded acceptance", out.getvalue())
@@ -379,6 +379,18 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("stale notes: 8  fixed: 8", out.getvalue())
         self.assertIn("work folder:", out.getvalue())
+
+
+class IncompleteRunTests(unittest.TestCase):
+    def test_a_run_whose_model_calls_fail_is_reported_incomplete_and_exits_nonzero(self):
+        def runner(argv, cwd, env, stdin_text):
+            return 1, "", "Not logged in - run /login"
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = rs.main(["--live"], runner=runner)
+        self.assertEqual(code, 1)
+        self.assertIn("INCOMPLETE: some model calls failed", out.getvalue())
 
 
 if __name__ == "__main__":

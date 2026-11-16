@@ -218,9 +218,12 @@ def ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None):
 def run_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None):
     """The JSON a lane returned, or None when the call failed or the answer held no JSON."""
     try:
-        return extract_json(
+        answer = extract_json(
             ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd).text
         )
     except mrr.AskError as err:
         print("LANE-ERROR " + mc.clean_line(err, 100))
         return None
+    if answer is None:
+        print("LANE-ERROR the answer held no JSON")
+    return answer

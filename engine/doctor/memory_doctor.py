@@ -6,7 +6,7 @@ variables are set here but never reach the children, the memory directory, the d
 Nothing is spent unless --live is given: that makes ONE real call (at most 0.05 USD, normally a fraction of a cent) with the
 engine's exact invocation, which proves the login and the output format. The output holds names, versions and counts only
 (the home directory is shown as ~, no variable value is printed), so it is safe to paste into an issue.
-Exit codes: 0 no FAIL; 1 at least one FAIL (a refused or failed --live call included); 64 usage.
+Exit codes: 0 no FAIL; 1 at least one FAIL (a refused or failed --live call included); 2 usage (argparse).
 """
 
 import argparse
@@ -381,7 +381,7 @@ def check_first_run(ops):
                 "questions",
                 "%d recall questions (the judge needs %d to %d)"
                 % (count, mrr.MIN_QUESTIONS, mrr.MAX_QUESTIONS),
-                "the question wizard proposes a set from your notes (about 1 USD); see step 0 of the skill",
+                "the question wizard proposes a set from your notes (about 1 USD); see Preconditions in the skill, or run recall/memory_recall_wizard.py propose after a snapshot",
             )
         )
     evidence = os.path.join(ops, "evidence")
@@ -499,6 +499,7 @@ def run_checks(args, environ, probe, runner):
             )
         )
     if args.live:
+        print(mrr.estimate_line("doctor probe", 1, LIVE_PROBE_USD, LIVE_PROBE_USD))
         checks += check_live(
             runner, args.model or environ.get(ENV_LANE_MODEL) or "sonnet"
         )

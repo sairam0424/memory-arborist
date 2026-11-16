@@ -170,7 +170,7 @@ class _EarlyFail:
             self.failed += 1
             self.first = self.first or record["error"]
             if not self.answered and self.failed >= self.limit:
-                self.spend.stop("the first %d model calls all failed, so nothing was graded (first error: %s)" % (self.failed, self.first))
+                self.spend.stop("the first %d model calls all failed, so nothing was graded (first error: %s); run doctor/memory_doctor.py --live --model <the judge model> to see why" % (self.failed, self.first))
 
 
 def run_arm(questions, runner, settings, memory, tmp, label, spend, workers):

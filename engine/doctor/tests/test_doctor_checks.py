@@ -453,6 +453,8 @@ class MainTests(WithClaudeOnPath):
         )
         self.assertEqual(code, 0, out)
         self.assertEqual(len(calls), 1)
+        self.assertIn("ESTIMATE doctor probe: 1 model calls", out)
+        self.assertLess(out.index("ESTIMATE"), out.index("live "))
         self.assertEqual(calls[0][calls[0].index("--model") + 1], "pinned-model-id")
 
     def test_an_unknown_option_is_a_usage_error(self):
