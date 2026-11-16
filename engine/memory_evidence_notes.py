@@ -15,9 +15,13 @@ def _shown(counter):
 
 
 SIZE_CAP_NOTE = (
-    "NOTE %d sessions got no digest because the evidence folder reached its 512 KiB cap. Digests cost nothing to rebuild from "
-    "your transcripts: remove the folder (memory_evidence.py purge-plan prints the command) and build again, and the newest "
-    "sessions will fill it."
+    "NOTE up to %d sessions got no digest because the evidence folder reached its 512 KiB cap (some of them would have been "
+    "skipped anyway, for example a session nobody typed in). Digests cost nothing to rebuild from your transcripts: remove "
+    "the folder (memory_evidence.py purge-plan prints the command) and build again, and the newest sessions will fill it."
+)
+INVALID_NOTE = (
+    "NOTE %d session(s) were not written because their digest would not pass verify (an unusual header or line). Nothing was "
+    "lost: the transcripts are untouched. If this keeps happening, please report it without pasting the transcript."
 )
 NO_DIGEST_NOTE = (
     "NOTE no digest was written. Skipped, by count: %s. 'recent' means idle for less than six hours (finish or close the "
@@ -43,6 +47,8 @@ def note_lines(entrypoints, unknown_keys, skipped=None, written=1):
         )
     if skipped.get("size_cap"):
         lines.append(SIZE_CAP_NOTE % skipped["size_cap"])
+    if skipped.get("invalid"):
+        lines.append(INVALID_NOTE % skipped["invalid"])
     if not written and skipped:
         lines.append(NO_DIGEST_NOTE % _shown(skipped))
     return lines

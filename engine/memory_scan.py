@@ -243,9 +243,18 @@ def decode_for_scan(raw):
     return raw.decode("utf-8", errors="replace").replace("\x00", "")
 
 
+class ScanLimitError(ValueError):
+    """A file over MAX_SCAN_BYTES: it was not scanned, which is not the same as clean."""
+
+
+def limit_text():
+    """The scan limit in words: 50 MiB, or a byte count for a limit below one MiB."""
+    return "%d MiB" % (MAX_SCAN_BYTES // (1024 * 1024)) if MAX_SCAN_BYTES >= 1024 * 1024 else "%d bytes" % MAX_SCAN_BYTES
+
+
 def scan_file(path, label=None):
     if os.path.getsize(path) > MAX_SCAN_BYTES:
-        raise ValueError("file larger than the scan limit")
+        raise ScanLimitError("file larger than the scan limit")
     with open(path, "rb") as fh:
         raw = fh.read()
     return scan_text(decode_for_scan(raw), label or path)
@@ -261,6 +270,8 @@ def scan_tree(root):
     for rel in walk.files:
         try:
             hits.extend(scan_file(os.path.join(root, rel), rel))
+        except ScanLimitError:
+            skipped.append((rel, "larger than the %s scan limit, not scanned" % limit_text()))
         except (OSError, ValueError) as err:
             skipped.append((rel, "unreadable file: %s" % type(err).__name__))
     return ScanResult(hits, sorted(skipped))

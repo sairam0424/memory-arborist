@@ -190,10 +190,9 @@ def _verifier_stage(hunks, notes, digests_by_session, ctx):
 
 def run_pipeline(ops, snap_id, runner, settings, spend, workers=4, max_notes=MAX_NOTES):
     digest_dir = os.path.join(ops, "evidence")
-    if not me.verify_dir(digest_dir).ok:
-        raise mc.HygieneError(
-            "the evidence digests do not verify; rebuild or inspect them first"
-        )
+    checked = me.verify_dir(digest_dir)
+    if not checked.ok:
+        raise mc.HygieneError(me.failure_text(checked))
     snapshot_dir = os.path.join(ops, "snapshots", snap_id, "memory")
     notes = {
         rel: mc.read_text(os.path.join(snapshot_dir, rel))

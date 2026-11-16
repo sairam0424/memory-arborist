@@ -288,7 +288,7 @@ class SizeCapTests(Base):
             code, out, _err = self.cli()
         self.assertEqual(code, 0, out)
         self.assertIn("skipped_size_cap=3", out)
-        self.assertIn("NOTE 3 sessions got no digest because the evidence folder reached its 512 KiB cap", out)
+        self.assertIn("NOTE up to 3 sessions got no digest because the evidence folder reached its 512 KiB cap", out)
         self.assertIn("purge-plan", out)
 
     def test_below_the_cap_there_is_no_cap_note(self):

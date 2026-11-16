@@ -58,10 +58,9 @@ def _squash(text):
 
 def load_digests(directory):
     """{session: Digest}. Refuses to read a directory that does not pass the strict digest verification."""
-    if not me.verify_dir(directory).ok:
-        raise mc.HygieneError(
-            "the evidence digests do not verify; rebuild or inspect them before grounding anything"
-        )
+    checked = me.verify_dir(directory)
+    if not checked.ok:
+        raise mc.HygieneError(me.failure_text(checked))
     digests = {}
     for name in sorted(os.listdir(directory)):
         lines = mc.read_text(os.path.join(directory, name)).split("\n")

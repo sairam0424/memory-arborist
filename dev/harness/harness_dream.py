@@ -2,7 +2,7 @@
 
 usage: python3 -I harness_dream.py [G01 S02 ...]     (no arguments = every mutant; takes several minutes)
 Prints one line per mutant: killed, SURVIVED, or MISSING-SNIPPET (the pattern no longer matches the reflowed source).
-Last full result (2026-11-10): all 77 mutants killed.
+Last full result (2026-11-17): all 77 mutants killed (U02 was re-pointed at the verifier stage after it started counting unusable verdicts).
 """
 
 import os
@@ -241,8 +241,8 @@ M = [
     (
         "U02 default reject off",
         U,
-        r'return answer\.get\("verdict"\) == "keep"',
-        'return answer.get("verdict") != "reject"',
+        r'return False, "no usable verdict", True',
+        'return True, "no usable verdict", True',
     ),
     # staging gate: which findings stop a staged edit, and counted per (code, path)
     ("S10 yaml codes not blocking", "memory_lint.py", r"finding\.code in STAGING_BLOCKING_CODES", 'finding.code in {"frontmatter-unclosed", "missing-description", "index-is-symlink"}'),

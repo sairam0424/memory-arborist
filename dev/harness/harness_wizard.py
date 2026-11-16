@@ -303,7 +303,7 @@ M = [
     ("N11 a failed write is not logged", r'"wizard could not write its proposal: "', '""'),
     ("N12 coverage counts planned batches", r"asked = \[c for c, r in zip\(chunks, replies\) if r is not CEILING\]", "asked = list(chunks)"),
     ("N13 a tools report keeps the first stop reason", r"raise mrr\.ToolsMismatch\(reason\)\n    if out\.is_error", "raise mrr.ToolsMismatch(spend.stopped)\n    if out.is_error"),
-    ("N14 the judge reads universal newlines differently", r'text = re\.sub\(r"\\r\\n\?", "\\n", text\)', "pass"),
+    ("N14 the judge reads universal newlines differently", r'text = re\.sub\(\s*r"\\r\\n\?", "\\n", text\s*\)', "pass"),
 ]
 M = [m for m in M if len(sys.argv) < 2 or m[0].split()[0] in sys.argv[1:]]
 

@@ -87,7 +87,7 @@ def _refusal(verdict):
         "the live notes)"
     )
     if verdict.skipped:
-        advice += "; for entries that could not be scanned, remove the symlink or fix the permissions"
+        advice += "; for entries that could not be scanned, remove the symlink, fix the permissions, or shrink a note over %s" % ms.limit_text()
     return (
         "the notes cannot be sent: %s. Nothing was sent to the model provider. %s, or pass %s if you accept sending it."
         % (_found(verdict), advice, FLAG)

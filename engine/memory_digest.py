@@ -198,7 +198,10 @@ def _record_text(rec):
 
 def _clock(rec):
     match = CLOCK.match(str(rec.get("timestamp", "")))
-    return match.group(1) if match else "--:--"
+    if not match:
+        return "--:--"
+    hour, minute = int(match.group(1)[:2]), int(match.group(1)[3:])
+    return match.group(1) if hour < 24 and minute < 60 else "--:--"  # 99:99 is not a time; verify would refuse the digest
 
 
 # ------------------------------------------------------------------ one digest
@@ -340,7 +343,9 @@ def _select(session):
 
 
 def _header(session_id, session, kept_users, kept_assistants):
+    # verify accepts an absolute path, "unknown" or "[redacted]"; a relative or Windows-style cwd would make the digest unverifiable
     cwd = mr.sanitize(session.cwd or "unknown", CWD_CHARS).excerpt or "[redacted]"
+    cwd = cwd if cwd.startswith("/") or cwd == "[redacted]" else "unknown"
     return "\n".join(
         [
             HEADER,

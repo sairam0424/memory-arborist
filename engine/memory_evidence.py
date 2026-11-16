@@ -13,10 +13,8 @@ import math
 import os
 import re
 import shlex
-import stat
 import sys
 import time
-import unicodedata
 from collections import Counter, namedtuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,16 +30,24 @@ from memory_digest import (  # noqa: E402,F401  (re-exported for callers and tes
     is_human_session,
 )
 import memory_evidence_notes as en  # noqa: E402
+from memory_evidence_verify import (  # noqa: E402,F401  (re-exported for callers and tests)
+    HEADER_LINES,
+    MAX_BAD_NAMES,
+    MAX_LINE_CHARS,
+    UUID,
+    Verify,
+    failure_text,
+    verify_dir,
+    would_verify,
+)
 
 MAX_TOTAL_BYTES = 524288
 MAX_FILE_BYTES = 1024 * 1024 * 1024
 QUIET_SECONDS = 6 * 3600
 MIN_QUIET_SECONDS = 60
-MAX_LINE_CHARS = 412
 DEFAULT_LIMIT, DEFAULT_SAMPLE = 60, 30
 PRIVATE_FILE_MODE = 0o600
 EXIT_OK, EXIT_FAIL, EXIT_USAGE = 0, 1, 64
-UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 BuildResult = namedtuple(
     "BuildResult",
@@ -49,15 +55,6 @@ BuildResult = namedtuple(
     defaults=(None, None),
 )
 ENTRYPOINT_NAME = re.compile(r"[A-Za-z0-9_-]{1,30}")
-Verify = namedtuple("Verify", "digests over_limit missing_header untrusted_lines ok")
-HEADER_LINES = (
-    re.compile("^" + re.escape(HEADER) + "$"),
-    re.compile("^session: ([0-9a-f-]{36})$"),
-    re.compile(r"^date: ([0-9]{4}-[0-9]{2}-[0-9]{2}|unknown) \(times are UTC\)$"),
-    re.compile(r"^cwd: (/.{0,200}|unknown|\[redacted\])$"),
-    re.compile(r"^records: user=([0-9]{1,9})/([0-9]{1,9}) assistant=([0-9]{1,9})/([0-9]{1,9}) dropped_secret=[0-9]{1,9} masked_pii=[0-9]{1,9}$"),
-    re.compile("^---$"),
-)
 
 
 # ------------------------------------------------------------------ choosing and writing
@@ -154,6 +151,19 @@ def _is_human(path, entrypoints=DEFAULT_ENTRYPOINTS):
         return False
 
 
+def _store(target, text, skipped):
+    """Write one digest: 'written', 'skipped' (the file appeared in the meantime) or 'failed' (the write itself failed)."""
+    try:
+        _write_once(target, text)
+    except FileExistsError:
+        skipped["existing"] += 1
+        return "skipped"
+    except OSError:
+        skipped["write_failed"] += 1
+        return "failed"
+    return "written"
+
+
 def build_all(
     source,
     out,
@@ -162,11 +172,14 @@ def build_all(
     quiet_seconds=QUIET_SECONDS,
     exclude_session=None,
     entrypoints=DEFAULT_ENTRYPOINTS,
+    progress=None,
 ):
     _check_dirs(source, out)
     paths, skipped = list_sessions(
         source, time.time() if now is None else now, quiet_seconds, exclude_session
     )
+    if progress:
+        progress("BUILD-START sessions=%d limit=%d (reading a large transcript folder can take a few minutes; nothing leaves this machine)" % (len(paths), limit))
     mc.makedirs_private(out)
     total, written, secret, pii, failed = _dir_bytes(out), [], 0, 0, None
     foreign, unknown = Counter(), Counter()
@@ -175,6 +188,10 @@ def build_all(
             break
         session_id = os.path.basename(path)[: -len(".jsonl")]
         target = os.path.join(out, session_id + ".md")
+        if total >= MAX_TOTAL_BYTES:
+            # the folder is already full: parsing more transcripts could only produce digests that do not fit
+            skipped["size_cap"] += _waiting(paths[position:], out)
+            break
         if os.path.lexists(target):
             skipped["existing"] += 1
             continue
@@ -191,21 +208,24 @@ def build_all(
         size = len(digest.text.encode("utf-8"))
         if total + size > MAX_TOTAL_BYTES:
             # every session still waiting for a digest (the newest were taken first) is left out; say how many, not just one
-            waiting = [p for p in paths[position:] if not os.path.lexists(os.path.join(out, os.path.basename(p)[: -len(".jsonl")] + ".md"))]
-            skipped["size_cap"] += len(waiting)
+            skipped["size_cap"] += _waiting(paths[position:], out)
             break
-        try:
-            _write_once(target, digest.text)
-        except FileExistsError:
-            skipped["existing"] += 1
+        if not would_verify(digest.text, session_id):
+            skipped["invalid"] += 1
             continue
-        except OSError:
-            skipped["write_failed"] += 1
+        outcome = _store(target, digest.text, skipped)
+        if outcome == "failed":
             failed = session_id
             break
-        total += size
-        written.append(session_id)
+        if outcome == "written":
+            total += size
+            written.append(session_id)
     return BuildResult(written, skipped, _dir_bytes(out), secret, pii, failed, foreign, unknown)
+
+
+def _waiting(paths, out):
+    """How many of these sessions have no digest in the folder yet (an upper bound: some would be skipped for another reason)."""
+    return sum(1 for p in paths if not os.path.lexists(os.path.join(out, os.path.basename(p)[: -len(".jsonl")] + ".md")))
 
 
 def _sample(paths, count):
@@ -215,7 +235,7 @@ def _sample(paths, count):
 
 
 def scan_sources(
-    source, sample, now=None, quiet_seconds=QUIET_SECONDS, exclude_session=None, entrypoints=DEFAULT_ENTRYPOINTS
+    source, sample, now=None, quiet_seconds=QUIET_SECONDS, exclude_session=None, entrypoints=DEFAULT_ENTRYPOINTS, progress=None
 ):
     """Counts only: how many sampled sessions were read and how many of their texts hold a secret shape or PII."""
     if not os.path.isdir(source):
@@ -226,6 +246,8 @@ def scan_sources(
         source, time.time() if now is None else now, quiet_seconds, exclude_session
     )
     scanned = secret = pii = 0
+    if progress:
+        progress("SCAN-START sessions=%d sample=%d (a large transcript folder can take a few minutes; nothing leaves this machine)" % (len(paths), sample))
     human = [path for path in paths if _is_human(path, entrypoints)]
     for path in _sample(human, sample):
         digest = _safe_digest(path, Counter(), entrypoints)
@@ -236,76 +258,6 @@ def scan_sources(
                 pii + digest.pii_records,
             )
     return scanned, secret, pii
-
-
-# ------------------------------------------------------------------ verify
-
-
-def _digest_entries(out):
-    return sorted(os.listdir(out)) if os.path.isdir(out) else []
-
-
-def _forbidden_character(text):
-    return any(
-        (unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") and c != "\n") or mr.is_invisible(c) for c in text
-    )
-
-
-def _clock_ok(line):
-    shape = LINE_FORMAT.match(line)
-    if not shape:
-        return False
-    stamp = shape.group(1)
-    return stamp == "--:--" or (int(stamp[:2]) < 24 and int(stamp[3:]) < 60)
-
-
-def _body_problems(lines, header):
-    body = lines[6:-1]
-    problems = int(not body)
-    problems += sum(1 for line in body if len(line) > MAX_LINE_CHARS or not _clock_ok(line))
-    problems += sum(1 for line in body if mr.has_secret(line[8:])) + mr.has_secret(lines[3][5:])
-    users, assistants = (sum(1 for line in body if line.startswith(tag)) for tag in ("U ", "A "))
-    kept_u, seen_u, kept_a, seen_a = (int(header.group(i)) for i in (1, 2, 3, 4))
-    if (users, assistants) != (kept_u, kept_a) or kept_u > seen_u or kept_a > seen_a:
-        problems += 1
-    return problems
-
-
-def _check_digest(out, name):
-    """(over_limit, header problems, untrusted problems) for one entry."""
-    path = os.path.join(out, name)
-    stem = name[: -len(".md")] if name.endswith(".md") else ""
-    if os.path.islink(path) or not os.path.isfile(path) or not UUID.fullmatch(stem):
-        return 0, 0, 1
-    info = os.stat(path)
-    untrusted = int(bool(stat.S_IMODE(info.st_mode) & 0o077) or info.st_nlink > 1)
-    over = int(info.st_size > MAX_DIGEST_BYTES)
-    try:
-        with open(path, "rb") as fh:
-            data = fh.read(MAX_DIGEST_BYTES + 1)
-    except OSError:
-        return over, 0, untrusted + 1
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        return over, 0, untrusted + 1
-    untrusted += _forbidden_character(text)
-    lines = text.split("\n")
-    matches = [rx.match(line) for rx, line in zip(HEADER_LINES, lines)]
-    if over or len(lines) < 7 or lines[-1] != "" or not all(matches) or matches[1].group(1) != stem:
-        return over, int(not over), untrusted
-    return over, 0, untrusted + _body_problems(lines, matches[4])
-
-
-def verify_dir(out):
-    if os.path.islink(out) or (os.path.isdir(out) and stat.S_IMODE(os.stat(out).st_mode) & 0o077):
-        return Verify(0, 0, 0, 1, False)
-    entries = _digest_entries(out)
-    over = missing = bad = 0
-    for name in entries:
-        a, b, c = _check_digest(out, name)
-        over, missing, bad = over + a, missing + b, bad + c
-    return Verify(len(entries), over, missing, bad, bool(entries) and not (over or missing or bad))
 
 
 # ------------------------------------------------------------------ command line
@@ -347,6 +299,11 @@ def _skip_text(skipped):
     )
 
 
+def _progress(text):
+    """A start line for a long read, on stderr so stdout stays the parseable result."""
+    print(text, file=sys.stderr)
+
+
 def cmd_status(args):
     _source, out = _paths(args)
     print(
@@ -367,7 +324,7 @@ def _entrypoints(args):
 def cmd_scan_sources(args):
     source, _out = _paths(args)
     scanned, secret, pii = scan_sources(
-        source, args.sample, args.now, _quiet(args), args.exclude_session, _entrypoints(args)
+        source, args.sample, args.now, _quiet(args), args.exclude_session, _entrypoints(args), progress=_progress
     )
     print(
         "SOURCES scanned=%d secret_records=%d pii_records=%d" % (scanned, secret, pii)
@@ -378,7 +335,7 @@ def cmd_scan_sources(args):
 def cmd_build(args):
     source, out = _paths(args)
     res = build_all(
-        source, out, args.limit, args.now, _quiet(args), args.exclude_session, _entrypoints(args)
+        source, out, args.limit, args.now, _quiet(args), args.exclude_session, _entrypoints(args), progress=_progress
     )
     other = {k: v for k, v in res.skipped.items() if k != "existing"}
     print(
@@ -408,6 +365,8 @@ def cmd_verify(args):
         "VERIFY digests=%d over_8192=%d missing_header=%d untrusted_origin_lines=%d"
         % res[:4]
     )
+    if not res.ok and res.bad_names:
+        print("VERIFY-BAD first=%s" % ", ".join(mc.printable(name)[:80] for name in res.bad_names))
     return EXIT_OK if res.ok else EXIT_FAIL
 
 

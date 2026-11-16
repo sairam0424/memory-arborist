@@ -140,6 +140,12 @@ def cmd_snapshot(args):
             "WARN the copied notes contain %d block-tier secret shapes; run scan to see where"
             % res["scan"][0]
         )
+    if res.get("unscanned"):
+        print(
+            "WARN %d note(s) were not scanned for secrets (a note over %s, or a file that could not be read): scan names them. "
+            "The paid steps refuse to send notes that were not scanned (exit 4) until you shrink them or pass --allow-secret-shapes"
+            % (res["unscanned"], ms.limit_text())
+        )
     print(
         "SNAPSHOT ok files=%d manifest_sha256_ok=%d id=%s scan_block=%d scan_warn=%d skipped_symlinks=%d"
         % (

@@ -147,7 +147,7 @@ def _next_seq(ops):
 
 
 def _write_snapshot(memory_dir, ops, walk, meta, tree, now):
-    """Copy, verify, scan and write the manifest last. Returns (snapshot id, verified count, (block, warn))."""
+    """Copy, verify, scan and write the manifest last. Returns (snapshot id, verified count, (block, warn), unscanned count)."""
     snap_id = _new_snapshot_id(ops, now)
     copy_root = os.path.join(ops, "snapshots", snap_id, "memory")
     mc.makedirs_private(copy_root)
@@ -160,7 +160,8 @@ def _write_snapshot(memory_dir, ops, walk, meta, tree, now):
             "source changed or copy corrupted (%d of %d verified); no manifest written, retry"
             % (ok_count, len(meta))
         )
-    scan = ms.summarize(ms.scan_tree(copy_root).hits)
+    scanned = ms.scan_tree(copy_root)
+    scan, unscanned = ms.summarize(scanned.hits), len(scanned.skipped)
     manifest = {
         "version": 1,
         "id": snap_id,
@@ -169,16 +170,18 @@ def _write_snapshot(memory_dir, ops, walk, meta, tree, now):
         "source": os.path.realpath(memory_dir),
         "files": meta,
         "tree_sha256": tree,
-        "scan": {"block": scan[0], "warn": scan[1]},
+        "scan": dict({"block": scan[0], "warn": scan[1]}, **({"unscanned": unscanned} if unscanned else {})),
         "skipped_symlinks": list(walk.symlinks),
         "skipped_special": list(walk.special),
     }
     _write_json_private(_manifest_path(ops, snap_id), manifest)
-    return snap_id, ok_count, scan
+    return snap_id, ok_count, scan, unscanned
 
 
-def _result(status, snap_id, meta, ok_count, scan, skipped, problems):
+def _result(status, snap_id, meta, ok_count, scan, skipped, problems, unscanned=0):
+    """The snapshot result; "unscanned" (entries the secret scan could not read or was too big for) is present only when above zero."""
     return {
+        **({"unscanned": unscanned} if unscanned else {}),
         "status": status,
         "id": snap_id,
         "files": len(meta),
@@ -202,7 +205,7 @@ def take_snapshot(memory_dir, ops, now=None, free_fn=None, min_free=MIN_FREE_BYT
             raise HygieneError(
                 "refusing: only %d bytes free, need %d" % (free, min_free)
             )
-        snap_id, ok_count, scan = _write_snapshot(
+        snap_id, ok_count, scan, unscanned = _write_snapshot(
             memory_dir, ops, walk, meta, tree, now
         )
         return _result(
@@ -213,6 +216,7 @@ def take_snapshot(memory_dir, ops, now=None, free_fn=None, min_free=MIN_FREE_BYT
             scan,
             sorted(walk.symlinks + walk.special),
             problems,
+            unscanned,
         )
 
 

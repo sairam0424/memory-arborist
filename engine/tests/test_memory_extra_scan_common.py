@@ -337,7 +337,7 @@ class DecodeAndFileTests(unittest.TestCase):
         finally:
             os.chmod(os.path.join(root, "locked"), 0o700)
             os.chmod(os.path.join(root, "noperm.md"), 0o600)
-        self.assertEqual(res.skipped, [("big.md", "unreadable file: ValueError"), ("link.md", "symlink, not scanned"), ("locked", "unreadable directory: Permission denied"), ("noperm.md", "unreadable file: PermissionError"), ("pipe", "special file (FIFO or socket), not scanned")])
+        self.assertEqual(res.skipped, [("big.md", "larger than the 200 bytes scan limit, not scanned"), ("link.md", "symlink, not scanned"), ("locked", "unreadable directory: Permission denied"), ("noperm.md", "unreadable file: PermissionError"), ("pipe", "special file (FIFO or socket), not scanned")])
         self.assertEqual([(h.path, h.line, h.pattern, h.tier) for h in res.hits], [("leak.md", 1, "GitHub Token", "block"), ("sub/inner.md", 1, "GitHub Token", "block")])
 
     def test_format_hit_summarize_and_a_clean_tree(self):
