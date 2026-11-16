@@ -14,9 +14,21 @@ def _shown(counter):
     return ", ".join("%s=%d" % pair for pair in pairs)
 
 
-def note_lines(entrypoints, unknown_keys):
-    """The NOTE lines for a build: sessions left out by entrypoint, and user records dropped for a key this tool does not know."""
+SIZE_CAP_NOTE = (
+    "NOTE %d sessions got no digest because the evidence folder reached its 512 KiB cap. Digests cost nothing to rebuild from "
+    "your transcripts: remove the folder (memory_evidence.py purge-plan prints the command) and build again, and the newest "
+    "sessions will fill it."
+)
+NO_DIGEST_NOTE = (
+    "NOTE no digest was written. Skipped, by count: %s. 'recent' means idle for less than six hours (finish or close the "
+    "session, or wait); 'no_user' means nobody typed in the session; 'non_cli' means the session did not start at a terminal."
+)
+
+
+def note_lines(entrypoints, unknown_keys, skipped=None, written=1):
+    """The NOTE lines for a build: why fewer digests came out than expected."""
     lines = []
+    skipped = skipped or {}
     if entrypoints:
         lines.append(
             "NOTE sessions left out because of their entrypoint: %s. Only a terminal session (entrypoint cli) counts as a person "
@@ -29,4 +41,8 @@ def note_lines(entrypoints, unknown_keys):
             "have added them; until this tool learns them those lines cannot be quoted as evidence. Please report the names."
             % _shown(unknown_keys)
         )
+    if skipped.get("size_cap"):
+        lines.append(SIZE_CAP_NOTE % skipped["size_cap"])
+    if not written and skipped:
+        lines.append(NO_DIGEST_NOTE % _shown(skipped))
     return lines

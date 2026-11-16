@@ -88,6 +88,7 @@ OBSERVER_DIRS = frozenset({"claude-mem", ".claude-mem"})
 DEFAULT_ENTRYPOINTS = frozenset({"cli"})  # the entrypoints that count as a person at a terminal
 SAFE_NAME = re.compile(r"[^A-Za-z0-9_-]+")
 MAX_UNKNOWN_KEYS_PER_RECORD = 8
+MAX_UNKNOWN_KEY_NAMES = 50  # distinct names kept per session; the rest are counted together as "other"
 Digest = namedtuple(
     "Digest",
     "session_id text skip kept secret_records pii_records oversize_records entrypoint unknown_keys",
@@ -251,7 +252,10 @@ class _Session:
         if rec.get("origin") not in (None, {"kind": "human"}):
             return
         for key in sorted(set(rec) - USER_KEYS)[:MAX_UNKNOWN_KEYS_PER_RECORD]:
-            self.unknown_keys[_safe_name(key)] += 1
+            name = _safe_name(key)
+            if name not in self.unknown_keys and len(self.unknown_keys) >= MAX_UNKNOWN_KEY_NAMES:
+                name = "other"
+            self.unknown_keys[name] += 1
 
     def add(self, rec, index):
         self.note_unknown_keys(rec)

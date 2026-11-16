@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -263,6 +264,88 @@ def run_cli_expecting_exit(*argv):
         except SystemExit as exit_info:
             code = exit_info.code
     return code, out.getvalue(), err.getvalue()
+
+
+class SizeCapTests(Base):
+    """The evidence folder is capped; the build has to say when the cap leaves sessions without a digest."""
+
+    def seed(self, count):
+        for n in range(1, count + 1):
+            write_transcript(self.source, n, basic_session(), age_days=30 - n)
+
+    def cli(self, *extra):
+        return run_cli("build", "--source", self.source, "--out", self.out, "--now", str(NOW), "--quiet-seconds", "3600", *extra)
+
+    def test_every_session_left_waiting_by_the_cap_is_counted_and_a_note_says_what_to_do(self):
+        self.seed(6)
+        one = len(me.build_all(self.source, self.out, limit=1, now=NOW, quiet_seconds=3600).written)
+        self.assertEqual(one, 1)
+        size = os.path.getsize(os.path.join(self.out, os.listdir(self.out)[0]))
+        with mock.patch.object(me, "MAX_TOTAL_BYTES", size * 3 + 10):
+            result = me.build_all(self.source, self.out, now=NOW, quiet_seconds=3600)
+            self.assertEqual(len(result.written), 2)  # three fit in all, one was there already
+            self.assertEqual(result.skipped["size_cap"], 3)  # the other three sessions are waiting
+            code, out, _err = self.cli()
+        self.assertEqual(code, 0, out)
+        self.assertIn("skipped_size_cap=3", out)
+        self.assertIn("NOTE 3 sessions got no digest because the evidence folder reached its 512 KiB cap", out)
+        self.assertIn("purge-plan", out)
+
+    def test_below_the_cap_there_is_no_cap_note(self):
+        self.seed(3)
+        _code, out, _err = self.cli()
+        self.assertNotIn("512 KiB", out)
+
+
+class NoDigestNoteTests(Base):
+    def cli(self, *extra):
+        return run_cli("build", "--source", self.source, "--out", self.out, "--now", str(NOW), "--quiet-seconds", "3600", *extra)
+
+    def test_a_build_that_wrote_nothing_explains_the_commonest_reason(self):
+        write_transcript(self.source, 1, basic_session(), age_days=0)  # idle for less than the quiet time
+        code, out, _err = self.cli()
+        self.assertEqual(code, 0)
+        self.assertIn("BUILD ok digests=0", out)
+        self.assertIn("skipped_recent=1", out)
+        self.assertIn("NOTE no digest was written. Skipped, by count: recent=1", out)
+
+    def test_a_build_that_wrote_something_prints_no_such_note(self):
+        write_transcript(self.source, 1, basic_session(), age_days=9)
+        _code, out, _err = self.cli()
+        self.assertIn("BUILD ok digests=1", out)
+        self.assertNotIn("no digest was written", out)
+
+    def test_nothing_to_skip_and_nothing_written_prints_no_note(self):
+        _code, out, _err = self.cli()
+        self.assertNotIn("NOTE", out)
+
+
+class UnknownKeyBoundTests(Base):
+    def test_the_distinct_unknown_key_names_are_bounded_and_the_rest_are_counted_together(self):
+        records = [user("typed line number %03d is long enough" % i, **{"newKey%03d" % i: 1}) for i in range(120)]
+        write_transcript(self.source, 1, records, age_days=9)
+        result = me.build_all(self.source, self.out, now=NOW, quiet_seconds=3600)
+        counts = dict(result.unknown_keys)
+        self.assertLessEqual(len(counts), md.MAX_UNKNOWN_KEY_NAMES + 1)
+        self.assertEqual(sum(counts.values()), 120)
+        self.assertIn("other", counts)
+
+
+class HeadlessOptInTests(Base):
+    def test_an_sdk_entrypoint_cannot_be_opted_in(self):
+        import contextlib
+        import io
+
+        for name in ("sdk-py", "sdk-cli", "SDK-TS", "sdk"):
+            with self.subTest(name):
+                err = io.StringIO()
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                    try:
+                        code = me.main(["build", "--source", self.source, "--out", self.out, "--include-entrypoint", name])
+                    except SystemExit as exit_info:
+                        code = exit_info.code
+                self.assertEqual(code, 64)
+                self.assertIn("headless runs", err.getvalue())
 
 
 if __name__ == "__main__":

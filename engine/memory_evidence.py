@@ -170,7 +170,7 @@ def build_all(
     mc.makedirs_private(out)
     total, written, secret, pii, failed = _dir_bytes(out), [], 0, 0, None
     foreign, unknown = Counter(), Counter()
-    for path in paths:
+    for position, path in enumerate(paths):
         if len(written) >= limit:
             break
         session_id = os.path.basename(path)[: -len(".jsonl")]
@@ -190,7 +190,9 @@ def build_all(
             continue
         size = len(digest.text.encode("utf-8"))
         if total + size > MAX_TOTAL_BYTES:
-            skipped["size_cap"] += 1
+            # every session still waiting for a digest (the newest were taken first) is left out; say how many, not just one
+            waiting = [p for p in paths[position:] if not os.path.lexists(os.path.join(out, os.path.basename(p)[: -len(".jsonl")] + ".md"))]
+            skipped["size_cap"] += len(waiting)
             break
         try:
             _write_once(target, digest.text)
@@ -319,6 +321,8 @@ def _finite_now(text):
 def _entrypoint_name(text):
     if not ENTRYPOINT_NAME.fullmatch(text):
         raise argparse.ArgumentTypeError("an entrypoint name is 1 to 30 letters, digits, underscores or hyphens")
+    if text.casefold().startswith("sdk"):
+        raise argparse.ArgumentTypeError("sdk-* entrypoints are headless runs, whose text a machine wrote: they cannot be treated as typed by a person")
     return text
 
 
@@ -388,7 +392,7 @@ def cmd_build(args):
             _skip_text(other),
         )
     )
-    for line in en.note_lines(res.entrypoints, res.unknown_keys):
+    for line in en.note_lines(res.entrypoints, res.unknown_keys, other, len(res.written)):
         print(line)
     if res.failed:
         partial = os.path.join(out, res.failed + ".md")
