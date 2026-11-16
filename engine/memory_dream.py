@@ -33,6 +33,10 @@ DEFAULT_MAX_HUNKS = 10
 
 
 class _Parser(argparse.ArgumentParser):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("allow_abbrev", False)  # --app must not quietly mean --apply: the confirmation hook matches the full flag
+        super().__init__(*args, **kwargs)
+
     def error(self, message):
         self.print_usage(sys.stderr)
         self.exit(EXIT_USAGE, "%s: error: %s\n" % (self.prog, message))

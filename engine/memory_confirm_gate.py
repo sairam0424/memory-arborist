@@ -28,21 +28,58 @@ REASON = (
     "memory-arborist is about to change your live memory notes, or to send notes that hold secret-shaped text. "
     "Go ahead only if you reviewed the diff and the digest it shows."
 )
-SEGMENT = r"[^|;&\n]*"  # both words must sit in the same shell command, not in two commands of one line
-GATED = (
-    re.compile(
-        r"memory_dream\.py\b" + SEGMENT + r"\bpromote\b" + SEGMENT + r"--apply\b"
-    ),
-    re.compile(
-        r"memory_hygiene\.py\b" + SEGMENT + r"\brestore\b" + SEGMENT + r"--apply\b"
-    ),
-    re.compile(r"\bmemory_[a-z_]+\.py\b" + SEGMENT + r"--allow-secret-shapes\b"),
-)
+CONTINUATION = re.compile(r"\\\r?\n")  # a backslash at the end of a line continues the command
+SEPARATORS = "|;&\n"
+SCRIPT = re.compile(r"\bmemory_[a-z_]+\.py\b")
+DREAM, HYGIENE = re.compile(r"\bmemory_dream\.py\b"), re.compile(r"\bmemory_hygiene\.py\b")
+PROMOTE, RESTORE = re.compile(r"\bpromote\b"), re.compile(r"\brestore\b")
+APPLY, ALLOW = re.compile(r"--apply\b"), re.compile(r"--allow-secret-shapes\b")
 SOFT_ERRORS = (OSError, ValueError, KeyError, RecursionError)
 
 
+def logical_commands(command):
+    """The commands of a shell line, split at | ; & and newline that are outside quotes, $( ) and backticks.
+
+    A backslash-newline is a continuation, not a separator. This is a text scan, not a shell parser: it is meant to keep one
+    command's words together and two commands' words apart, in the forms a model writes."""
+    text = CONTINUATION.sub(" ", command)
+    commands, current = [], []
+    quote, depth, backtick, i = "", 0, False, 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "\\" and quote != "'" and i + 1 < len(text):
+            current.append(text[i : i + 2])
+            i += 2
+            continue
+        if ch in "'\"" and quote in ("", ch):
+            quote = "" if quote else ch
+        elif not quote:
+            if ch == "`":
+                backtick = not backtick
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth = max(0, depth - 1)
+        if ch in SEPARATORS and not quote and not depth and not backtick and not (ch == "&" and current and current[-1][-1:] in "<>"):
+            commands.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+        i += 1
+    commands.append("".join(current))
+    return commands
+
+
+def _gated(one):
+    return bool(
+        (DREAM.search(one) and PROMOTE.search(one) and APPLY.search(one))
+        or (HYGIENE.search(one) and RESTORE.search(one) and APPLY.search(one))
+        or (SCRIPT.search(one) and ALLOW.search(one))
+    )
+
+
 def needs_confirmation(command):
-    return isinstance(command, str) and any(rx.search(command) for rx in GATED)
+    return isinstance(command, str) and any(_gated(one) for one in logical_commands(command))
 
 
 def decision(stdin_text):

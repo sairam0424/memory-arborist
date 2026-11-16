@@ -24,6 +24,18 @@ GATED_COMMANDS = (
     "python3 -I memory_dream_run.py run --allow-secret-shapes",
     "python3 -I recall/memory_recall.py --arm live --allow-secret-shapes",
     "cd /tmp && python3 -I memory_dream.py promote RUN --apply",
+    # forms the first version missed (found by the independent review)
+    'python3 -I "/p/engine/memory_dream.py" promote 20261114T210119Z \\\n    --apply --expect 0123456789abcdef',
+    "python3 -I memory_dream.py \\\n  --dir /x promote RUN --apply",
+    "python3 -I memory_hygiene.py restore --snapshot S --file a.md \\\n  --apply --force",
+    "python3 -I memory_dream_run.py run \\\n  --allow-secret-shapes",
+    'python3 -I memory_dream.py promote "$(ls -1t /ops/dream | head -1)" --apply --expect D',
+    'python3 -I memory_dream.py --ops-root "/data/a;b" promote RUN --apply',
+    'python3 -I memory_dream.py --dir "/srv/data/R&D/memory" promote RUN --apply',
+    "(cd /x && python3 -I memory_dream.py promote RUN --apply)",
+    "bash -c 'python3 -I memory_dream.py promote RUN --apply'",
+    "python3 -I memory_dream.py\tpromote\tRUN\t--apply",
+    "echo start\npython3 -I memory_dream.py promote RUN --apply",
 )
 QUIET_COMMANDS = (
     "python3 -I memory_dream.py promote 20261114T210119Z",
@@ -35,6 +47,8 @@ QUIET_COMMANDS = (
     "python3 -I memory_dream.py promote RUN | cat; echo --apply",
     "python3 -I memory_dream.py promote RUN && echo --apply",
     "echo --allow-secret-shapes",
+    'echo "memory_dream.py promote RUN"; echo --apply',
+    "python3 -I memory_dream.py promote RUN \\\n | cat\necho --apply",
     "",
 )
 
@@ -84,6 +98,54 @@ class DecisionTests(unittest.TestCase):
         ):
             with self.subTest(text[:20]):
                 self.assertEqual(gate.decision(text), "")
+
+
+class LogicalCommandTests(unittest.TestCase):
+    def test_separators_split_only_outside_quotes_and_substitutions(self):
+        split = gate.logical_commands
+        self.assertEqual(split("a | b; c && d\ne"), ["a ", " b", " c ", "", " d", "e"])
+        self.assertEqual(split('echo "a;b|c" x'), ['echo "a;b|c" x'])
+        self.assertEqual(split("echo 'a&b' x"), ["echo 'a&b' x"])
+        self.assertEqual(split("echo $(ls | head -1) y"), ["echo $(ls | head -1) y"])
+        self.assertEqual(split("echo `ls | head` y"), ["echo `ls | head` y"])
+        self.assertEqual(split("a \\\n b"), ["a   b"])
+        self.assertEqual(split("cmd 2>&1 | tee"), ["cmd 2>&1 ", " tee"])
+
+    def test_an_escaped_quote_does_not_open_a_quote(self):
+        self.assertEqual(gate.logical_commands("echo \\\" a; b"), ['echo \\" a', " b"])
+
+    def test_a_very_long_padded_command_is_still_gated(self):
+        padding = "x" * 200_000
+        command = "echo %s; python3 -I memory_dream.py promote RUN --apply" % padding
+        self.assertIn("ask", gate.decision(payload(command)))
+        quiet = "python3 -I memory_dream.py promote RUN %s; echo --apply" % padding
+        self.assertEqual(gate.decision(payload(quiet)), "")
+
+
+class AbbreviationTests(unittest.TestCase):
+    """An abbreviated flag must not slip past the hook: the two parsers that take --apply refuse abbreviations."""
+
+    def test_an_abbreviated_apply_is_a_usage_error_in_both_commands(self):
+        import contextlib
+        import io
+
+        import memory_dream as dr
+        import memory_hygiene as mh
+
+        for build, argv in (
+            (dr.build_parser, ["promote", "20261114T210119Z", "--app", "--expect", "x"]),
+            (dr.build_parser, ["promote", "20261114T210119Z", "--a"]),
+            (mh.build_parser, ["restore", "--snapshot", "S", "--file", "a.md", "--app"]),
+            (mh.build_parser, ["restore", "--snapshot", "S", "--file", "a.md", "--a"]),
+        ):
+            with self.subTest(argv), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+                build().parse_args(argv)
+            self.assertEqual(ctx.exception.code, 64)
+
+    def test_the_full_flag_still_parses(self):
+        import memory_dream as dr
+
+        self.assertTrue(dr.build_parser().parse_args(["promote", "20261114T210119Z", "--apply"]).apply)
 
 
 class HooksFileTests(unittest.TestCase):
