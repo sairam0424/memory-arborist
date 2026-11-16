@@ -8,6 +8,7 @@ import hashlib
 import os
 import re
 import shutil
+import sys
 import time
 from collections import namedtuple
 
@@ -103,6 +104,18 @@ def expand(path):
 def printable(text):
     """Text safe to print: control, bidi and zero-width characters become '?'."""
     return CONTROL_CHARS.sub("?", str(text))
+
+
+def safe_stdio():
+    """Make printing never raise: a character the terminal's encoding cannot hold (a note title in another script, a stray
+    surrogate from a file name) prints as a backslash escape instead of ending the run with a UnicodeEncodeError."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(errors="backslashreplace")
+            except (OSError, ValueError):
+                pass  # a closed or odd stream: leave it as it is
 
 
 def makedirs_private(path):

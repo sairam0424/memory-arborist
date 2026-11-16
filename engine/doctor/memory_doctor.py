@@ -573,6 +573,7 @@ def build_parser():
 
 
 def main(argv=None, environ=None, probe=None, runner=None):
+    mc.safe_stdio()
     args = build_parser().parse_args(argv)
     if args.version:
         print("%s %s" % plugin_info())

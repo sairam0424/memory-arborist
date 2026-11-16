@@ -376,6 +376,7 @@ def build_parser():
 
 
 def main(argv=None, runner=None):
+    mc.safe_stdio()
     args = build_parser().parse_args(argv)
     try:
         return cmd_run(args, runner or lanes.subprocess_runner)

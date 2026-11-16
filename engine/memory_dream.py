@@ -471,6 +471,7 @@ def build_parser():
 
 
 def main(argv=None):
+    mc.safe_stdio()
     args = build_parser().parse_args(argv)
     try:
         return args.fn(args)

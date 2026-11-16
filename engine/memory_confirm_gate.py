@@ -24,7 +24,7 @@ import time
 sys.dont_write_bytecode = True  # a hook writes nothing, not even bytecode
 
 MAX_STDIN_CHARS = 1 << 20
-STDIN_WAIT_SECONDS = 1.0
+STDIN_WAIT_SECONDS = 3.5  # the host's hook timeout is 5 s; a slow writer must not get a free pass
 REASON = (
     "memory-arborist is about to change your live memory notes, or to send notes that hold secret-shaped text. "
     "Go ahead only if you reviewed the diff and the digest it shows."
@@ -38,19 +38,37 @@ APPLY, ALLOW = re.compile(r"--apply\b"), re.compile(r"--allow-secret-shapes\b")
 SOFT_ERRORS = (OSError, ValueError, KeyError, RecursionError)
 
 
-def logical_commands(command):
-    """The commands of a shell line, split at | ; & and newline that are outside quotes, $( ) and backticks.
+def _splits(ch, text, i, prev):
+    """True when this | ; & or newline is a command separator and not part of a redirection (&> >& <& >|)."""
+    if ch not in SEPARATORS:
+        return False
+    if ch == "&" and ((prev and prev in "<>") or text[i + 1 : i + 2] == ">"):
+        return False
+    return not (ch == "|" and prev == ">")
 
-    A backslash-newline is a continuation, not a separator. This is a text scan, not a shell parser: it is meant to keep one
-    command's words together and two commands' words apart, in the forms a model writes."""
-    text = CONTINUATION.sub(" ", command)
+
+def logical_commands(command):
+    """The commands of a shell line, split at | ; & and newline that are outside quotes, $( ), ${ } and backticks.
+
+    A backslash-newline is removed (bash joins the lines, even inside a word), a comment is dropped, and redirections such as
+    &> and >| do not split. This is a text scan, not a shell parser, so it falls back to judging the WHOLE text as one command
+    whenever it cannot trust itself (a here-document, or a quote, bracket or brace left open): a false prompt is the safe
+    direction, a missed one is not."""
+    text = CONTINUATION.sub("", command)
+    if "<<" in text:
+        return [text]
     commands, current = [], []
-    quote, depth, backtick, i = "", 0, False, 0
+    quote, depth, braces, backtick, i = "", 0, 0, False, 0
     while i < len(text):
         ch = text[i]
+        prev = current[-1][-1:] if current else ""
         if ch == "\\" and quote != "'" and i + 1 < len(text):
             current.append(text[i : i + 2])
             i += 2
+            continue
+        if ch == "#" and not quote and (not prev or prev in " \t\n;|&("):
+            end = text.find("\n", i)
+            i = len(text) if end < 0 else end
             continue
         if ch in "'\"" and quote in ("", ch):
             quote = "" if quote else ch
@@ -61,12 +79,18 @@ def logical_commands(command):
                 depth += 1
             elif ch == ")":
                 depth = max(0, depth - 1)
-        if ch in SEPARATORS and not quote and not depth and not backtick and not (ch == "&" and current and current[-1][-1:] in "<>"):
+            elif ch == "{" and prev == "$":
+                braces += 1
+            elif ch == "}" and braces:
+                braces -= 1
+        if _splits(ch, text, i, prev) and not (quote or depth or braces or backtick):
             commands.append("".join(current))
             current = []
         else:
             current.append(ch)
         i += 1
+    if quote or depth or braces or backtick:
+        return [text]
     commands.append("".join(current))
     return commands
 
@@ -83,12 +107,18 @@ def needs_confirmation(command):
     return isinstance(command, str) and any(_gated(one) for one in logical_commands(command))
 
 
-def decision(stdin_text):
-    """The JSON line to print, or '' when the hook has nothing to say."""
+def decision(stdin_text, cut=False):
+    """The JSON line to print, or '' when the hook has nothing to say.
+
+    `cut` says the input filled the read limit, so the command may continue past what was read. The host only starts this hook for
+    a command that already matches one of the plugin's gated shapes, so a payload this long is asked about rather than waved through."""
+    if cut:
+        return _ask()
     try:
-        payload = json.loads(stdin_text[:MAX_STDIN_CHARS])
+        payload = json.loads(stdin_text)
     except SOFT_ERRORS:
-        return ""
+        # unreadable input: judge the raw text rather than let a gated command through
+        return _ask() if _gated(stdin_text) else ""
     if not isinstance(payload, dict) or payload.get("tool_name") != "Bash":
         return ""
     tool_input = payload.get("tool_input")
@@ -96,18 +126,16 @@ def decision(stdin_text):
         tool_input.get("command")
     ):
         return ""
-    answer = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "ask",
-            "permissionDecisionReason": REASON,
-        }
-    }
+    return _ask()
+
+
+def _ask():
+    answer = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": REASON}}
     return json.dumps(answer) + "\n"
 
 
 def _read_stdin(limit=MAX_STDIN_CHARS, wait=STDIN_WAIT_SECONDS):
-    """Whatever the host wrote to stdin within the deadline; empty on a closed or silent stdin."""
+    """(text, cut): whatever the host wrote to stdin within the deadline, and whether it filled the limit (so there may be more)."""
     chunks, total = [], 0
     deadline = time.monotonic() + wait
     try:
@@ -121,13 +149,13 @@ def _read_stdin(limit=MAX_STDIN_CHARS, wait=STDIN_WAIT_SECONDS):
             chunks.append(chunk)
             total += len(chunk)
     except (OSError, ValueError):
-        return ""
-    return b"".join(chunks).decode("utf-8", errors="replace")
+        return "", False
+    return b"".join(chunks).decode("utf-8", errors="replace"), total >= limit
 
 
 def main():
     try:
-        out = decision(_read_stdin())
+        out = decision(*_read_stdin())
         if out:
             os.write(1, out.encode("utf-8"))
     except Exception:  # noqa: BLE001 - the hook contract is silence and exit 0, whatever happens

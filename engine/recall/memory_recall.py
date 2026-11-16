@@ -489,6 +489,7 @@ def _judge_in(args, runner, questions, ops, tmp, spend):
 
 
 def main(argv=None, runner=None):
+    mc.safe_stdio()
     args = build_parser().parse_args(argv)
     args.questions_given = args.questions is not None
     try:

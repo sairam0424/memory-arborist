@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +51,31 @@ QUIET_COMMANDS = (
     'echo "memory_dream.py promote RUN"; echo --apply',
     "python3 -I memory_dream.py promote RUN \\\n | cat\necho --apply",
     "",
+)
+
+
+HARD_GATED = (  # redirections, braces, comments, here-documents and continuations inside a word
+    "python3 -I memory_dream.py promote RUN &>/dev/null --apply",
+    "python3 -I memory_dream.py promote RUN >|/tmp/out --apply",
+    "python3 -I memory_dream.py promote RUN >&2 --apply",
+    "python3 -I memory_dream.py promote RUN <&0 --apply",
+    "python3 -I memory_dream.py promote RUN 2>&1 --apply",
+    "python3 -I memory_dream.py promote ${RUN:-a;b} --apply",
+    "python3 -I memory_dream.py promote RUN --ap\\\nply",
+    "python3 -I memory_dre\\\nam.py promote RUN --apply",
+    "# don't\npython3 -I memory_dream.py promote RUN --apply",
+    "echo it's; python3 -I memory_dream.py promote RUN --apply",
+    "cat <<'EOF'\nit's\nEOF\npython3 -I memory_dream.py promote RUN --apply",
+    "python3 -I memory_dream.py promote RUN |& tee out\npython3 -I memory_dream.py promote R2 --apply",
+)
+HARD_QUIET = (
+    "python3 -I memory_dream.py promote RUN &>/dev/null; echo --apply",
+    "python3 -I memory_dream.py promote RUN >|/tmp/out && echo --apply",
+    "python3 -I memory_dream.py promote ${RUN:-a} | cat; echo --apply",
+    'echo "${x:-a;b}"; echo --apply',
+    "python3 -I memory_dream.py promote RUN # --apply",
+    "python3 -I memory_dream.py promote RUN # it's here\necho --apply",
+    "echo ${#x}; python3 -I memory_dream.py promote RUN",
 )
 
 
@@ -100,6 +126,36 @@ class DecisionTests(unittest.TestCase):
                 self.assertEqual(gate.decision(text), "")
 
 
+class HardFormTests(unittest.TestCase):
+    def test_redirections_braces_comments_and_continuations_inside_a_word_do_not_hide_a_gated_command(self):
+        for command in HARD_GATED:
+            with self.subTest(command):
+                self.assertIn("ask", gate.decision(payload(command)))
+
+    def test_the_same_shapes_stay_quiet_when_the_flag_is_in_another_command_or_a_comment(self):
+        for command in HARD_QUIET:
+            with self.subTest(command):
+                self.assertEqual(gate.decision(payload(command)), "")
+
+    def test_a_here_document_or_an_unbalanced_quote_is_judged_as_one_command_and_asks(self):
+        # the scan is not a shell parser: when it cannot trust itself it asks, never passes
+        for command in (
+            "cat <<EOF\nmemory_dream.py promote RUN --apply\nEOF",
+            "echo 'open; python3 -I memory_dream.py promote RUN --apply",
+            "echo $(open; python3 -I memory_dream.py promote RUN --apply",
+        ):
+            with self.subTest(command):
+                self.assertIn("ask", gate.decision(payload(command)))
+
+    def test_raw_text_that_is_not_json_is_still_judged(self):
+        self.assertIn("ask", gate.decision('{"tool_input": {"command": "memory_dream.py promote RUN --apply'))
+        self.assertEqual(gate.decision('{"tool_input": {"command": "echo hi'), "")
+
+    def test_an_input_that_filled_the_read_limit_asks_because_the_command_may_continue(self):
+        self.assertIn("ask", gate.decision("x" * 100, cut=True))
+        self.assertEqual(gate.decision(payload("ls"), cut=False), "")
+
+
 class LogicalCommandTests(unittest.TestCase):
     def test_separators_split_only_outside_quotes_and_substitutions(self):
         split = gate.logical_commands
@@ -108,7 +164,7 @@ class LogicalCommandTests(unittest.TestCase):
         self.assertEqual(split("echo 'a&b' x"), ["echo 'a&b' x"])
         self.assertEqual(split("echo $(ls | head -1) y"), ["echo $(ls | head -1) y"])
         self.assertEqual(split("echo `ls | head` y"), ["echo `ls | head` y"])
-        self.assertEqual(split("a \\\n b"), ["a   b"])
+        self.assertEqual(split("a \\\n b"), ["a  b"])  # bash joins the lines with nothing between them
         self.assertEqual(split("cmd 2>&1 | tee"), ["cmd 2>&1 ", " tee"])
 
     def test_an_escaped_quote_does_not_open_a_quote(self):
@@ -219,6 +275,20 @@ class ProcessTests(unittest.TestCase):
         for text in (payload("ls"), "garbage"):
             done = self.run_gate(text)
             self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "", ""))
+
+    def test_a_writer_that_is_slow_is_still_read_and_judged(self):
+        argv = [sys.executable, "-B", "-I", os.path.join(th.SCRIPTS, "memory_confirm_gate.py")]
+        child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(1.5)  # well past the old 1.0 s wait, well inside the 3.5 s one
+        out, err = child.communicate(payload(GATED_COMMANDS[0]), timeout=30)
+        self.assertEqual((child.returncode, err), (0, ""))
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "ask")
+
+    def test_a_payload_over_the_read_limit_asks(self):
+        padding = "x" * (gate.MAX_STDIN_CHARS + 10)
+        done = self.run_gate(payload("echo %s; python3 -I memory_dream.py promote RUN --apply" % padding))
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual(json.loads(done.stdout)["hookSpecificOutput"]["permissionDecision"], "ask")
 
 
 if __name__ == "__main__":

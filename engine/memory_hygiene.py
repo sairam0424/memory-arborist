@@ -361,6 +361,7 @@ def _resolve_paths(args):
 
 
 def main(argv=None):
+    mc.safe_stdio()
     args = build_parser().parse_args(argv)
     try:
         return args.fn(_resolve_paths(args))
