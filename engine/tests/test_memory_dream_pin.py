@@ -44,22 +44,27 @@ class Base(unittest.TestCase):
         return os.path.join(self.ops, "pinned.txt")
 
 
-class EntryLineTests(unittest.TestCase):
-    def test_only_linked_entry_lines_are_returned_exactly_as_written(self):
+class IndexLineTests(unittest.TestCase):
+    def test_every_non_blank_line_is_returned_exactly_as_written(self):
         self.assertEqual(
-            dp.entry_lines(INDEX),
+            dp.index_lines(INDEX),
             [
+                "# Memory Index",
+                "Some intro text that is not an entry.",
                 "- [Deploys](project-deploys.md) deploy day",
                 "  - [Nested](project-nested.md) nested entry",
+                "- plain bullet without a link",
                 "- [Style](feedback-style.md) how to answer",
             ],
         )
 
-    def test_a_windows_line_ending_is_dropped_and_nothing_else_matches(self):
-        self.assertEqual(
-            dp.entry_lines("- [A](a.md) x\r\nnot an entry\r\n"), ["- [A](a.md) x"]
-        )
-        self.assertEqual(dp.entry_lines(""), [])
+    def test_a_star_bullet_or_a_prefixed_entry_is_pinned_too(self):
+        text = "* [Star](s.md) x\n- Rules: [Other](o.md) y\n"
+        self.assertEqual(dp.index_lines(text), ["* [Star](s.md) x", "- Rules: [Other](o.md) y"])
+
+    def test_a_windows_line_ending_is_dropped_and_blank_lines_are_not_kept(self):
+        self.assertEqual(dp.index_lines("- [A](a.md) x\r\n\r\nnot an entry\r\n"), ["- [A](a.md) x", "not an entry"])
+        self.assertEqual(dp.index_lines(""), [])
 
 
 class NoneTests(Base):
@@ -82,11 +87,11 @@ class AllTests(Base):
         sn.take_snapshot(self.mem, self.ops, now=T0)
         code, out, _err = self.pin("--all")
         self.assertEqual(code, 0, out)
-        self.assertIn("PINNED 3 index lines", out)
+        self.assertIn("PINNED 6 index lines", out)
         self.assertEqual(
-            th.read(self.pinned_path()).splitlines(), dp.entry_lines(INDEX)
+            th.read(self.pinned_path()).splitlines(), dp.index_lines(INDEX)
         )
-        self.assertEqual(dr._load_pinned(self.ops, False), dp.entry_lines(INDEX))
+        self.assertEqual(dr._load_pinned(self.ops, False), dp.index_lines(INDEX))
 
     def test_the_output_names_counts_and_a_path_but_prints_no_note_text(self):
         sn.take_snapshot(self.mem, self.ops, now=T0)
@@ -108,7 +113,7 @@ class AllTests(Base):
         )
         self.pin("--all")
         self.assertEqual(
-            th.read(self.pinned_path()).splitlines(), dp.entry_lines(INDEX)
+            th.read(self.pinned_path()).splitlines(), dp.index_lines(INDEX)
         )
 
     def test_a_snapshot_that_fails_verification_is_refused(self):

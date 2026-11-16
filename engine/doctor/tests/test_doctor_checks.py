@@ -320,6 +320,89 @@ class FirstRunTests(unittest.TestCase):
         self.assertIn("1 snapshots", found["snapshots"].detail)
 
 
+class PrivacyTests(unittest.TestCase):
+    """The output is pasted into public issues: no user name, no client folder name, no home path."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp(prefix="dochome_")
+        patcher = mock.patch.dict(os.environ, {"HOME": self.home})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_project_folder_is_shown_as_a_placeholder(self):
+        path = os.path.join(self.home, ".claude", "projects", "-Users-alice-bigclient-merger", "memory")
+        self.assertEqual(doc.shown(path), "~/.claude/projects/<project>/memory")
+        self.assertEqual(doc.shown("/srv/elsewhere/notes"), "/srv/elsewhere/notes")
+
+    def test_a_memory_line_never_carries_the_project_folder_name(self):
+        mem = os.path.join(self.home, ".claude", "projects", "-Users-alice-bigclient-merger", "memory")
+        os.makedirs(mem)
+        th.write(os.path.join(mem, "MEMORY.md"), "# Index\n")
+        root = tempfile.mkdtemp(prefix="docops_")
+        checks = doc.check_dirs(mem, root, mc.ops_dir_for(mem, root))
+        text = " ".join(c.detail + c.fix for c in checks)
+        for word in ("alice", "bigclient", "merger", self.home):
+            self.assertNotIn(word, text)
+        self.assertIn("<project>", text)
+
+    def test_scrub_shortens_every_home_path_in_a_childs_text(self):
+        text = "ENOENT %s/.claude/x and again %s" % (self.home, self.home)
+        self.assertEqual(doc.scrub(text), "ENOENT ~/.claude/x and again ~")
+        self.assertEqual(doc.scrub("no home here"), "no home here")
+
+    def test_the_live_failure_line_has_no_home_path(self):
+        def runner(argv, cwd, env, stdin_text):
+            return 1, "", "cannot read /Users/example/.claude/x"
+
+        with mock.patch.dict(os.environ, {"HOME": "/Users/example"}):
+            checks = doc.check_live(runner, "m")
+        self.assertNotIn("/Users/example", checks[0].detail)
+        self.assertIn("~/.claude/x", checks[0].detail)
+
+
+class ExtraChecksTests(unittest.TestCase):
+    def setUp(self):
+        self.mem = th.make_dir({"MEMORY.md": "# Index\n- [A](a.md) a\n- [B](b.md) b\n", "a.md": th.note("a")})
+        self.root = tempfile.mkdtemp(prefix="docops_")
+        self.ops = mc.ops_dir_for(self.mem, self.root)
+        os.makedirs(self.ops, mode=0o700)
+
+    def pinned(self, text):
+        th.write(os.path.join(self.ops, "pinned.txt"), text)
+        return {c.name: c for c in doc.check_first_run(self.ops, self.mem)}["pinned"]
+
+    def test_pinned_lines_that_match_the_index_are_ok(self):
+        check = self.pinned("- [A](a.md) a\n  - [B](b.md) b  \n")
+        self.assertEqual(check.status, doc.OK)
+        self.assertIn("2 of them match", check.detail)
+
+    def test_pinned_lines_that_match_nothing_are_a_warning(self):
+        check = self.pinned("- [A](a.md) written differently\n")
+        self.assertEqual(check.status, doc.WARN)
+        self.assertIn("none of the 1 pinned lines matches", check.detail)
+
+    def test_an_empty_pinned_file_is_ok_and_says_zero(self):
+        check = self.pinned("")
+        self.assertEqual(check.status, doc.OK)
+        self.assertIn("0 protected", check.detail)
+
+    def test_a_data_root_inside_the_memory_directory_is_a_failure(self):
+        inside = os.path.join(self.mem, "ops")
+        check = doc._data_root_check(self.mem, inside, mc.ops_dir_for(self.mem, inside))
+        self.assertEqual(check.status, doc.FAIL)
+        self.assertIn("inside the memory directory", check.detail)
+
+    def test_gateway_and_custom_endpoint_variables_are_watched(self):
+        for name in ("ANTHROPIC_BEDROCK_BASE_URL", "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "ANTHROPIC_CUSTOM_HEADERS", "AWS_CONFIG_FILE"):
+            with self.subTest(name):
+                checks = doc.check_login_env({"PATH": "/bin", name: "x"})
+                self.assertTrue(any(c.status == doc.WARN and name in c.detail for c in checks))
+
+    def test_a_secret_header_variable_is_flagged_as_a_secret(self):
+        warn = [c for c in doc.check_login_env({"PATH": "/bin", "ANTHROPIC_CUSTOM_HEADERS": "x"}) if c.status == doc.WARN][0]
+        self.assertIn("secrets", warn.fix)
+
+
 class LiveProbeTests(unittest.TestCase):
     def test_a_good_call_is_ok_and_describes_the_output_shape(self):
         def runner(argv, cwd, env, stdin_text):

@@ -80,6 +80,15 @@ LOGIN_ENV = (
     ("ANTHROPIC_DEFAULT_HAIKU_MODEL", False),
     ("ANTHROPIC_DEFAULT_OPUS_MODEL", False),
     ("ANTHROPIC_SMALL_FAST_MODEL", False),
+    ("ANTHROPIC_BEDROCK_BASE_URL", False),
+    ("ANTHROPIC_VERTEX_BASE_URL", False),
+    ("ANTHROPIC_FOUNDRY_BASE_URL", False),
+    ("CLAUDE_CODE_SKIP_BEDROCK_AUTH", False),
+    ("CLAUDE_CODE_SKIP_VERTEX_AUTH", False),
+    ("CLAUDE_CODE_SKIP_FOUNDRY_AUTH", False),
+    ("ANTHROPIC_CUSTOM_HEADERS", True),
+    ("AWS_CONFIG_FILE", False),
+    ("AWS_SHARED_CREDENTIALS_FILE", False),
     (
         "CLAUDE_CONFIG_DIR",
         False,
@@ -98,6 +107,21 @@ def tilde(path):
     if text == home or text.startswith(home + os.sep):
         return "~" + text[len(home) :]
     return text
+
+
+PROJECT_FOLDER = re.compile(r"(/projects/)[^/]+")
+
+
+def shown(path):
+    """A path for the output: the home directory as ~, and the project folder (its name spells the working directory path,
+    user name included) as <project>, so the output stays safe to paste."""
+    return PROJECT_FOLDER.sub(r"\1<project>", tilde(path))
+
+
+def scrub(text):
+    """Text from a child process with every home directory path shortened to ~."""
+    home = os.path.expanduser("~")
+    return re.sub(re.escape(home) + r"(?=/|$)", "~", str(text)) if home and home != "/" else str(text)
 
 
 def plugin_info():
@@ -278,7 +302,7 @@ def _count_notes(memory_dir):
 
 
 def check_dirs(memory_dir, ops_root, ops):
-    memory_text = tilde(memory_dir)
+    memory_text = shown(memory_dir)
     if not os.path.isdir(memory_dir):
         return [
             Check(
@@ -312,6 +336,13 @@ def check_dirs(memory_dir, ops_root, ops):
 
 
 def _data_root_check(memory_dir, ops_root, ops):
+    if mc.is_within(memory_dir, ops):
+        return Check(
+            FAIL,
+            "data-root",
+            "the data root lies inside the memory directory, which every command refuses",
+            "use --ops-root (or MEMORY_ARBORIST_HOME) on a folder outside the notes, on the same disk",
+        )
     probe_path = os.path.abspath(ops_root)
     while not os.path.exists(probe_path) and os.path.dirname(probe_path) != probe_path:
         probe_path = os.path.dirname(probe_path)
@@ -336,7 +367,19 @@ def _count_lines(path):
     return len([line for line in mc.read_text(path).splitlines() if line.strip()])
 
 
-def check_first_run(ops):
+def _pinned_check(pinned, memory_dir):
+    lines = [ln.strip() for ln in mc.read_text(pinned).split("\n") if ln.strip()]
+    index = os.path.join(memory_dir, "MEMORY.md") if memory_dir else ""
+    if not lines or not os.path.isfile(index):
+        return Check(OK, "pinned", "pinned.txt has %d protected index lines" % len(lines), "")
+    current = {ln.strip() for ln in mc.read_text(index).split("\n")}
+    matching = sum(1 for ln in lines if ln in current)
+    if matching == 0:
+        return Check(WARN, "pinned", "none of the %d pinned lines matches a line of MEMORY.md, so nothing is protected" % len(lines), "copy each line exactly as it appears in MEMORY.md, or run memory_dream.py pin --all on an empty pinned.txt location")
+    return Check(OK, "pinned", "pinned.txt has %d lines, %d of them match a line of MEMORY.md now" % (len(lines), matching), "")
+
+
+def check_first_run(ops, memory_dir=None):
     """The files a first model-backed run needs: pinned index lines, recall questions, evidence digests, a snapshot."""
     checks = []
     pinned, draft = (
@@ -344,14 +387,7 @@ def check_first_run(ops):
         os.path.join(ops, "pinned.txt.draft"),
     )
     if os.path.isfile(pinned):
-        checks.append(
-            Check(
-                OK,
-                "pinned",
-                "pinned.txt has %d protected index lines" % _count_lines(pinned),
-                "",
-            )
-        )
+        checks.append(_pinned_check(pinned, memory_dir))
     elif os.path.isfile(draft):
         checks.append(
             Check(
@@ -432,7 +468,7 @@ def check_live(runner, model):
                 Check(
                     FAIL,
                     "live",
-                    "the call failed: %s" % mc.clean_line(err, 300),
+                    "the call failed: %s" % scrub(mc.clean_line(err, 300)),
                     "fix the cause above, then run --live again",
                 )
             ]
@@ -488,7 +524,7 @@ def run_checks(args, environ, probe, runner):
     checks += check_claude(probe, environ) + check_login_env(environ)
     try:
         checks += check_dirs(memory_dir, ops_root, ops)
-        checks += check_first_run(ops) if os.path.isdir(memory_dir) else []
+        checks += check_first_run(ops, memory_dir) if os.path.isdir(memory_dir) else []
     except OSError as err:
         checks.append(
             Check(

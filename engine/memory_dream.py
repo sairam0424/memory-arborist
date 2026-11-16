@@ -67,7 +67,7 @@ def _load_pinned(ops, allow_draft):
         if os.path.isfile(path):
             lines = [
                 line.rstrip("\n")
-                for line in mc.read_text(path).split("\n")
+                for line in mc.read_text(path).lstrip("\ufeff").split("\n")  # an editor may have added a byte-order mark
                 if line.strip()
             ]
             if not lines:
@@ -400,7 +400,7 @@ def build_parser():
     pin = sub.add_parser("pin", help="create pinned.txt (the index lines a dream run must not edit)")
     mode = pin.add_mutually_exclusive_group(required=True)
     mode.add_argument("--none", action="store_true", help="protect no index line")
-    mode.add_argument("--all", action="store_true", help="protect every entry line of the newest snapshot's MEMORY.md")
+    mode.add_argument("--all", action="store_true", help="protect every non-blank line of the newest snapshot's MEMORY.md")
     pin.set_defaults(fn=cmd_pin)
     ground = sub.add_parser("ground", help="check hunks and stage the survivors")
     ground.add_argument("--hunks", required=True)
