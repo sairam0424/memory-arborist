@@ -226,7 +226,7 @@ def _promotion_plan(memory, ops, run_dir):
             or mc.sha256_file(live) != manifest["files"][rel]["sha256"]
         ):
             raise mc.HygieneError(
-                "%s changed since the snapshot; run the dream again" % mc.printable(rel)
+                "%s changed since the snapshot this run was made from: take a fresh snapshot (step 1) and run the dream again (step 4)" % mc.printable(rel)
             )
     return snap, accepted, touched, ds.run_digest(staged_dir, accepted)
 

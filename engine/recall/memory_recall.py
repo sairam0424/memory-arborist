@@ -194,7 +194,7 @@ def run_arm(questions, runner, settings, memory, tmp, label, spend, workers):
         return list(pool.map(one, questions))
 
 
-def report_run(arm, number, questions, records):
+def report_run(arm, number, questions, records, show_failed=False):
     graded = sum(1 for rec in records if "pass" in rec)
     passed = sum(1 for rec in records if rec.get("pass"))
     print(
@@ -205,6 +205,10 @@ def report_run(arm, number, questions, records):
     failed = [rec["id"] for rec in records if rec.get("pass") is False]
     broken = [rec["id"] for rec in records if "error" in rec]
     print("FAILED " + (",".join(failed) or "-") + " ERRORED " + (",".join(broken) or "-"))
+    if show_failed:
+        for rec in records:
+            if rec.get("pass") is False:
+                print("FAILED-ANSWER %s %s" % (rec["id"], mc.clean_line(rec.get("excerpt", "(no excerpt kept)"), 200)))
     return graded, passed
 
 
@@ -226,7 +230,7 @@ def execute(args, runner, questions, ops, tmp, plan, spend):
                 args.workers,
             )
             results.setdefault(arm, []).append(records)
-            report_run(arm, number, questions, records)
+            report_run(arm, number, questions, records, getattr(args, "show_failed", False))
     if any("pass" in rec for runs in results.values() for run in runs for rec in run):
         print("TOOLS ok=" + ",".join(mrr.EXPECTED_TOOLS))  # only when a child really answered and reported them
     return results, labels
@@ -405,6 +409,7 @@ def build_parser():
     p.add_argument("--per-q-usd", type=float, default=0.25)
     p.add_argument("--total-max-usd", type=float, default=DEFAULT_TOTAL_USD)
     p.add_argument("--no-log", action="store_true")
+    p.add_argument("--show-failed", action="store_true", help="print a short sanitised excerpt of each failed answer (to see why a key did not match)")
     p.add_argument("--allow-secret-shapes", action="store_true", help="send the notes even though they hold block-tier secret shapes or entries that could not be scanned (default: refuse, exit 4)")
     return p
 

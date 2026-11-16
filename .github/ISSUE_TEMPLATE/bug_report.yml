@@ -11,7 +11,7 @@ body:
     id: doctor
     attributes:
       label: Output of the doctor
-      description: Run `doctor/memory_doctor.py` from the plugin's `engine/` folder and paste everything it prints. It holds names, versions and counts only, no variable values and no note text.
+      description: Run `python3 -I <plugin folder>/engine/doctor/memory_doctor.py` from the project whose memory is affected (the README's "Your first run" names the plugin folder) and paste everything it prints. It holds names, versions and counts only, no variable values and no note text.
       render: text
     validations:
       required: true
@@ -19,7 +19,7 @@ body:
     id: what-happened
     attributes:
       label: What did you do, and what happened?
-      description: The step of the skill you were on, the command, the exit code, and the last `ESTIMATE`, `PIPELINE`, `LANE-ERROR` or `ABORTED` line it printed. Leave out note text.
+      description: The step of the skill you were on, the command, the exit code, and the last `ESTIMATE`, `PIPELINE`, `LANE-ERROR` or `ABORTED` line it printed. Leave out note text, and read the error lines for cloud account ids or internal host names before pasting.
     validations:
       required: true
   - type: textarea

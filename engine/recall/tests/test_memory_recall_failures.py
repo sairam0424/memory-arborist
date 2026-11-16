@@ -169,5 +169,31 @@ class ToolListTests(TempRoot):
         self.assertIn("did not report its tool list", out + err)
 
 
+class ShowFailedTests(TempRoot):
+    def setUp(self):
+        self.mem = memory_with_phrases()
+        self.root = tempfile.mkdtemp(prefix="recops_")
+        self.ops = mc.ops_dir_for(self.mem, self.root)
+        sn.take_snapshot(self.mem, self.ops, now=T0)
+        self.qfile = write_questions(questions())
+
+    def cli(self, *extra):
+        def runner(argv, cwd, env):
+            if "phrase 3?" in argv[3]:
+                return 0, fake_output("the answer is something else entirely"), ""
+            return MemoryReadingRunner()(argv, cwd, env)
+
+        argv = ["--questions", self.qfile, "--dir", self.mem, "--ops-root", self.root, "--no-log", "--arm", "live", "--workers", "1", *extra]
+        return run_main(argv, runner)
+
+    def test_a_failed_answer_is_shown_only_when_asked_for(self):
+        _code, out, _err = self.cli()
+        self.assertIn("FAILED r03", out)
+        self.assertNotIn("FAILED-ANSWER", out)
+        _code, out, _err = self.cli("--show-failed")
+        self.assertIn("FAILED-ANSWER r03 the answer is something else entirely", out)
+        self.assertEqual(out.count("FAILED-ANSWER"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

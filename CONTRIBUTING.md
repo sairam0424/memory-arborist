@@ -3,7 +3,7 @@
 Thanks for helping. Three rules matter most.
 
 1. **Sign off every commit** (Developer Certificate of Origin, https://developercertificate.org): `git commit -s`. A pull request with unsigned commits will be asked to amend.
-2. **Tests first.** A bug fix starts with a test that fails for the right reason; a feature needs tests for the behaviour and for the error paths. Do not loosen, skip or delete an existing test, threshold or fixture to make a change pass; if one looks wrong, open an issue that shows the failing output. Run all three suites (see the README) on your Python before you push.
+2. **Tests first.** A bug fix starts with a test that fails for the right reason; a feature needs tests for the behaviour and for the error paths. Do not loosen, skip or delete an existing test, threshold or fixture to make a change pass; if one looks wrong, open an issue that shows the failing output. Run every suite listed in the README, and `dev/acceptance/tests`, on your Python before you push.
 3. **Clean provenance.** Rely only on public documentation, the public `claude --help`, and behaviour you can observe in your own sessions. Do not paste code, prompts, strings or text taken from Claude Code's binary, source code or any leaked material, and do not name internals that only its code could tell you. For each Claude Code behaviour a change depends on, cite the public page or the `--help` line in the pull request; behaviour that no page documents but anyone can see in their own sessions goes into section 3 of `docs/PROVENANCE.md` with how to observe it. `engine/tests/test_memory_release_hygiene.py` fails on home paths, and, when the maintainer's git-ignored private word list is present, on every word in it; never add an exception.
 
 ## Style
