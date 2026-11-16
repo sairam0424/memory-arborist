@@ -29,6 +29,7 @@ EXIT_OK, EXIT_FAIL, EXIT_USAGE = 0, 1, 64
 RUN_ID = re.compile(r"[0-9]{8}T[0-9]{6}Z")
 SNAP_ID = re.compile(r"[0-9]{8}T[0-9]{6}Z(?:-[0-9]{2})?")
 MARKER = "promoted.json"
+FAILED_MARKER = "promote-failed.json"  # a promote that failed before it replaced any note: it does not use the run up
 DEFAULT_MAX_HUNKS = 10
 
 
@@ -193,7 +194,7 @@ def _regrounded(ops, snap, accepted):
 def _promotion_plan(memory, ops, run_dir):
     """(snapshot id, accepted hunks, touched files, digest); refuses unless the run is intact and the live notes are unchanged."""
     if os.path.lexists(os.path.join(run_dir, MARKER)):
-        raise mc.HygieneError("this run was already promoted")
+        raise mc.HygieneError(_already_promoted_message(run_dir))
     walk = mc.walk_files(run_dir)
     if walk.symlinks or walk.special or walk.errors:
         raise mc.HygieneError("the run directory holds links or special files")
@@ -282,14 +283,46 @@ class _Partial(mc.HygieneError):
         self.done, self.archive_dir = list(done), archive_dir
 
 
-def _write_marker(run_dir, data):
-    fd = os.open(
-        os.path.join(run_dir, MARKER),
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-        0o600,
-    )
+def _write_marker(run_dir, data, name=MARKER):
+    try:
+        fd = os.open(
+            os.path.join(run_dir, name),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+        )
+    except FileExistsError:
+        raise mc.HygieneError(
+            "another promote of this run finished first: check the notes and `memory_hygiene.py snapshots` before doing anything else"
+        )
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(data, fh)
+
+
+def _already_promoted_message(run_dir):
+    """Why a run cannot be promoted again: finished, or only partly done (with the way back)."""
+    try:
+        marker = json.loads(mc.read_text(os.path.join(run_dir, MARKER)))
+    except (OSError, ValueError, RecursionError):
+        marker = {}
+    if marker.get("status") != "partial":
+        return "this run was already promoted"
+    return (
+        "this run was already partly promoted (%d notes replaced; pre-promote snapshot %s; old copies in %s). To undo, run "
+        "`memory_hygiene.py restore --snapshot %s --file <note> --apply --force` for each replaced note; then take a fresh snapshot "
+        "(step 1) and run the dream again (step 4)"
+        % (len(marker.get("files", [])), marker.get("pre_snapshot", "?"), marker.get("archive", "?"), marker.get("pre_snapshot", "?"))
+    )
+
+
+def _incomplete_warning(run_dir):
+    """A WARNING line when the staged report starts with the INCOMPLETE banner (some model calls failed during the run)."""
+    try:
+        text = mc.read_text(os.path.join(run_dir, "report.md"))
+    except OSError:
+        return None
+    if "**INCOMPLETE:" not in text:
+        return None
+    return "WARNING this run was INCOMPLETE (some model calls failed, see the banner in report.md): proposals may be missing"
 
 
 def _run_dir_of(ops, run_id):
@@ -302,25 +335,30 @@ def _run_dir_of(ops, run_id):
 
 
 def _record_partial(ops, run_dir, run_id, err, pre):
-    _write_marker(
-        run_dir,
-        {
-            "status": "partial",
-            "files": err.done,
-            "error": str(err),
-            "archive": err.archive_dir,
-            "pre_snapshot": pre["id"],
-        },
-    )
+    data = {
+        "status": "partial" if err.done else "failed-before-replacing",
+        "files": err.done,
+        "error": str(err),
+        "archive": err.archive_dir,
+        "pre_snapshot": pre["id"],
+    }
+    if err.done:
+        _write_marker(run_dir, data)
+    else:  # nothing was replaced: leave the run promotable once the cause is fixed
+        _write_marker(run_dir, data, os.path.basename(mc.unique_path(os.path.join(run_dir, FAILED_MARKER))))
     mc.append_log(
         ops,
         "promote",
         "PARTIAL run=%s replaced=%d" % (run_id, len(err.done)),
         ["Error: " + mc.clean_line(err, 200), "Archive: " + err.archive_dir],
     )
+    if not err.done:
+        print("NOTHING was replaced (%s); the run can be promoted again once that is fixed" % mc.clean_line(err, 120))
+        return
     print(
-        "PARTIAL replaced %s; the old copies are in %s"
-        % (", ".join(map(mc.printable, err.done)) or "nothing", err.archive_dir)
+        "PARTIAL replaced %s; the old copies are in %s; pre-promote snapshot %s. To undo, restore each of those notes with "
+        "`memory_hygiene.py restore --snapshot %s --file <note> --apply --force`"
+        % (", ".join(map(mc.printable, err.done)), err.archive_dir, pre["id"], pre["id"])
     )
 
 
@@ -366,11 +404,12 @@ def cmd_promote(args):
     memory, ops = _paths(args)
     run_dir = _run_dir_of(ops, args.run)
     snap, accepted, touched, digest = _promotion_plan(memory, ops, run_dir)
-    for rel in touched:
-        print(
-            "%s %s (the old copy is archived first)"
-            % ("replacing" if args.apply else "would replace", mc.printable(rel))
-        )
+    warning = _incomplete_warning(run_dir)
+    if warning:
+        print(warning)
+    if not args.apply:
+        for rel in touched:
+            print("would replace %s (the old copy is archived first)" % mc.printable(rel))
     print("DIGEST " + digest)
     if not args.apply:
         print(
@@ -382,6 +421,8 @@ def cmd_promote(args):
         raise mc.HygieneError(
             "--expect must equal the DIGEST a dry run printed for exactly this content"
         )
+    for rel in touched:  # only now: a refused promote must not claim it is replacing anything
+        print("replacing %s (the old copy is archived first)" % mc.printable(rel))
     _apply_promotion(args, memory, ops, run_dir, snap, touched)
     return EXIT_OK
 

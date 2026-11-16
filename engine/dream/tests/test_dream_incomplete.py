@@ -202,5 +202,39 @@ class EveryStageCountsTests(Base):
         self.assertIn("LANE-ERROR the writer proposed a malformed hunk", out)
 
 
+class StaleSnapshotWarningTests(Base):
+    """A second round after a promote used to reuse the pre-promote snapshot silently: 19 paid calls to re-propose live edits."""
+
+    def setUp(self):
+        super().setUp()
+        th.write(os.path.join(self.ops, "pinned.txt"), PINNED)
+
+    def main(self):
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["--dir", self.mem, "--ops-root", self.root, "run", "--snapshot", self.snap, "--workers", "1"]
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = run.main(argv, runner=ScriptedRunner(finder={"findings": []}))
+        return code, out.getvalue()
+
+    def test_a_fresh_snapshot_prints_no_warning(self):
+        code, out = self.main()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("differ from snapshot", out)
+
+    def test_a_changed_live_note_is_named_before_the_estimate(self):
+        th.write(os.path.join(self.mem, "project-deploys.md"), "changed after the snapshot\n")
+        _code, out = self.main()
+        self.assertIn("WARNING 1 live note(s) differ from snapshot %s (project-deploys.md)" % self.snap, out)
+        self.assertLess(out.index("WARNING"), out.index("ESTIMATE"))
+
+    def test_a_removed_and_an_added_note_both_count(self):
+        os.chmod(os.path.join(self.mem, "feedback-other.md"), 0o600)
+        os.rename(os.path.join(self.mem, "feedback-other.md"), os.path.join(self.mem, "feedback-renamed.md"))
+        _code, out = self.main()
+        self.assertIn("WARNING 2 live note(s) differ", out)
+        self.assertIn("feedback-other.md", out)
+        self.assertIn("feedback-renamed.md", out)
+
+
 if __name__ == "__main__":
     unittest.main()

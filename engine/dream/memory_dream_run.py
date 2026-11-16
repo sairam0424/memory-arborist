@@ -265,10 +265,32 @@ def _verified_snapshot(ops, args):
     return snap
 
 
+def drifted_notes(memory, ops, snap):
+    """Names of the notes whose live bytes differ from snapshot `snap` (changed, removed, or new since): a staged run built on that
+    snapshot cannot promote them, and a second round that reuses the snapshot taken before a promote proposes edits already applied."""
+    manifest = sn.load_manifest(ops, snap)
+    stored = {rel: info for rel, info in manifest["files"].items() if rel.endswith(".md")}
+    changed = []
+    for rel, info in stored.items():
+        live = os.path.join(memory, rel)
+        if not os.path.isfile(live) or mc.sha256_file(live) != info["sha256"]:
+            changed.append(rel)
+    changed += [rel for rel in mc.list_md(memory) if rel not in stored]
+    return sorted(changed)
+
+
 def cmd_run(args, runner):
     memory, ops = dr._paths(args)
     dr._load_pinned(ops, args.pinned_draft_ok)  # a missing pinned.txt is found now, not after the paid lanes have run
     snap = _verified_snapshot(ops, args)
+    drift = drifted_notes(memory, ops, snap)
+    if drift:
+        shown = ", ".join(map(mc.printable, drift[:5])) + (", ..." if len(drift) > 5 else "")
+        print(
+            "WARNING %d live note(s) differ from snapshot %s (%s): edits to them cannot be promoted, and after a promote a run that "
+            "reuses the old snapshot proposes edits that are already live. Take a fresh snapshot (step 1) first unless you mean this."
+            % (len(drift), snap, shown)
+        )
     print(mrr.estimate_line("dream lanes (finders, writers, verifiers)", "an open number of", args.per_lane_usd, args.total_max_usd))
     spend = mrr.Spend(args.total_max_usd)
     try:

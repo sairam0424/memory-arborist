@@ -290,9 +290,15 @@ def _swap_in(memory_dir, tmp, live, archive_dir, clean):
             "the path changed during the restore (%s); nothing was replaced; staged copy: %s"
             % (reason, tmp)
         )
-    archived = (
-        _archive_file(live, archive_dir, clean) if os.path.lexists(live) else None
-    )
+    try:
+        archived = (
+            _archive_file(live, archive_dir, clean) if os.path.lexists(live) else None
+        )
+    except HygieneError as err:
+        raise HygieneError(
+            "%s; the live note is untouched, and the staged copy %s is safe to remove by hand (this tool never deletes)"
+            % (err, mc.printable(tmp))
+        )
     try:
         os.replace(tmp, live)
     except OSError as err:
@@ -302,7 +308,7 @@ def _swap_in(memory_dir, tmp, live, archive_dir, clean):
             "could not place the restored file (%s); the original was put back"
             % err.strerror
         )
-    return ["archived live copy -> %s" % archived] if archived else []
+    return ["archived live copy -> %s" % mc.printable(archived)] if archived else []
 
 
 def _restore_absent(live, archive_dir, clean, apply, force):
@@ -322,7 +328,7 @@ def _restore_absent(live, archive_dir, clean, apply, force):
         ]
     return 0, [
         "archived %s -> %s"
-        % (mc.printable(clean), _archive_file(live, archive_dir, clean))
+        % (mc.printable(clean), mc.printable(_archive_file(live, archive_dir, clean)))
     ]
 
 
