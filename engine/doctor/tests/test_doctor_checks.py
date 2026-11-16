@@ -70,6 +70,11 @@ def probe_for(
     return probe
 
 
+def valid_question(i):
+    """A line the judge's own loader accepts (the doctor now loads the file the way the judge does)."""
+    return {"id": "q%d" % i, "kind": "recall", "question": "What is fact %d?" % i, "must": ["fact"], "forbid": []}
+
+
 def statuses(checks):
     return [check.status for check in checks]
 
@@ -306,7 +311,7 @@ class FirstRunTests(unittest.TestCase):
             (33, doc.WARN),
         ):
             with self.subTest(count):
-                th.write(path, "".join('{"id": "q%d"}\n' % i for i in range(count)))
+                th.write(path, "".join(json.dumps(valid_question(i)) + "\n" for i in range(count)))
                 self.assertEqual(self.by_name()["questions"].status, expected)
 
     def test_digests_and_snapshots_are_counted(self):

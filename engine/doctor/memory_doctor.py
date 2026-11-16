@@ -5,7 +5,8 @@ Checks Python, Claude Code (on the PATH the children get, its version and the fl
 variables are set here but never reach the children, the memory directory, the data root and the first-run files.
 Nothing is spent unless --live is given: that makes ONE real call (at most 0.05 USD, normally a fraction of a cent) with the
 engine's exact invocation, which proves the login and the output format. The output holds names, versions and counts only
-(the home directory is shown as ~, no variable value is printed), so it is safe to paste into an issue.
+(the standard folders are shown with ~ and <project>, any other path as <custom path>, cloud account ids and role ARNs in a child's
+error are replaced, and no variable value is printed), so it is safe to paste into an issue.
 Exit codes: 0 no FAIL; 1 at least one FAIL (a refused or failed --live call included); 2 usage (argparse).
 """
 
@@ -26,6 +27,7 @@ sys.path.insert(0, os.path.join(SCRIPTS, "recall"))
 sys.path.insert(0, os.path.join(SCRIPTS, "dream"))
 import memory_common as mc  # noqa: E402
 import memory_dream_lanes as lanes  # noqa: E402
+import memory_locate as locate  # noqa: E402
 import memory_recall_run as mrr  # noqa: E402
 import memory_snapshot as sn  # noqa: E402
 
@@ -118,10 +120,31 @@ def shown(path):
     return PROJECT_FOLDER.sub(r"\1<project>", tilde(path))
 
 
+CUSTOM_PATH = "<custom path>"
+
+
+def memory_label(path):
+    """The memory directory for the output: the standard <claude home>/projects/<project>/memory is shown with ~ and <project>;
+    any other path can spell a user, client or employer name, so it is shown as <custom path>."""
+    parent, leaf = os.path.split(os.path.abspath(path))
+    standard = leaf == "memory" and os.path.dirname(parent) == locate.projects_root()
+    return shown(path) if standard else CUSTOM_PATH
+
+
+def data_root_label(path):
+    """The data root for the output: the standard <claude home>/memory-arborist with ~, anything else as <custom path>."""
+    standard = os.path.abspath(path) == os.path.join(locate.claude_home(), "memory-arborist")
+    return tilde(path) if standard else CUSTOM_PATH
+
+
 def scrub(text):
-    """Text from a child process with every home directory path shortened to ~."""
+    """Text from a child process with every home directory path shortened to ~ and cloud account ids and role ARNs replaced
+    (an error line from a Bedrock or Vertex login can carry them, and this output is pasted into public issues)."""
+    text = str(text)
     home = os.path.expanduser("~")
-    return re.sub(re.escape(home) + r"(?=/|$)", "~", str(text)) if home and home != "/" else str(text)
+    if home and home != "/":
+        text = re.sub(re.escape(home) + r"(?=/|$)", "~", text)
+    return mrr.ARN.sub("<arn>", mrr.ACCOUNT_ID.sub("<account-id>", text))
 
 
 def plugin_info():
@@ -164,6 +187,15 @@ def subprocess_probe(argv, env):
     return proc.returncode, proc.stdout, proc.stderr
 
 
+def _no_answer(code, err, command, default):
+    """Why a probe of the claude binary failed, in words: a timeout or a failure to start is not an exit code of the program."""
+    if code == 124:
+        return "%s did not answer within %d seconds" % (command, PROBE_TIMEOUT_SECONDS)
+    if code == 127:
+        return "%s could not be started (%s)" % (command, scrub(mc.clean_line(err, 120)))
+    return default
+
+
 def check_python(version_info=None):
     current = tuple(version_info or sys.version_info[:3])
     text = "Python " + dotted(current[:3])
@@ -198,19 +230,20 @@ def check_claude(probe, environ):
             Check(
                 FAIL,
                 "claude",
-                "found, but `claude --version` gave no version (exit %d)" % code,
+                "found, but "
+                + _no_answer(code, err, "`claude --version`", "`claude --version` gave no version (exit %d)" % code),
                 "run `claude --version` yourself and see what it says",
             )
         ]
     checks = [_version_check(version)]
-    code, helptext, _err = probe([found, "--help"], env)
+    code, helptext, err = probe([found, "--help"], env)
     if code != 0:
         return checks + [
             Check(
                 WARN,
                 "flags",
-                "`claude --help` failed (exit %d), so the flags could not be checked"
-                % code,
+                _no_answer(code, err, "`claude --help`", "`claude --help` failed (exit %d)" % code)
+                + ", so the flags could not be checked",
                 "",
             )
         ]
@@ -301,38 +334,38 @@ def _count_notes(memory_dir):
     return len(names), lines
 
 
+def _guarded(name, function, *args):
+    """Run one check as a list of Checks. A file or folder that cannot be read makes THIS check a FAIL; it never hides the others."""
+    try:
+        result = function(*args)
+    except (OSError, ValueError, RecursionError, mc.HygieneError) as err:
+        reason = getattr(err, "strerror", None) or mc.clean_line(err, 160) or type(err).__name__
+        return [Check(FAIL, name, "could not read: %s" % scrub(reason), "check the permissions of that file or folder")]
+    return result if isinstance(result, list) else [result]
+
+
+def _memory_check(memory_dir):
+    text = memory_label(memory_dir)
+    notes, lines = _count_notes(memory_dir)
+    return Check(
+        OK,
+        "memory",
+        "%s: %d notes, %d index lines (Claude Code reads the first %d)" % (text, notes, lines, mrr.INDEX_MAX_LINES),
+        "",
+    )
+
+
 def check_dirs(memory_dir, ops_root, ops):
-    memory_text = shown(memory_dir)
     if not os.path.isdir(memory_dir):
         return [
             Check(
                 FAIL,
                 "memory",
-                "directory not found: " + memory_text,
-                "pass --dir, or set MEMORY_ARBORIST_MEMORY_DIR; Claude Code creates it on its first memory write",
+                "directory not found: " + memory_label(memory_dir),
+                "run this from the project whose memory you want to check, or pass --dir (or set MEMORY_ARBORIST_MEMORY_DIR); Claude Code creates the folder on its first memory write",
             )
         ]
-    try:
-        notes, lines = _count_notes(memory_dir)
-    except OSError as err:
-        return [
-            Check(
-                FAIL,
-                "memory",
-                "could not read %s: %s" % (memory_text, err.strerror),
-                "check the permissions of that directory",
-            )
-        ]
-    checks = [
-        Check(
-            OK,
-            "memory",
-            "%s: %d notes, %d index lines (Claude Code reads the first %d)"
-            % (memory_text, notes, lines, mrr.INDEX_MAX_LINES),
-            "",
-        )
-    ]
-    return checks + [_data_root_check(memory_dir, ops_root, ops)]
+    return _guarded("memory", _memory_check, memory_dir) + _guarded("data-root", _data_root_check, memory_dir, ops_root, ops)
 
 
 def _data_root_check(memory_dir, ops_root, ops):
@@ -346,94 +379,116 @@ def _data_root_check(memory_dir, ops_root, ops):
     probe_path = os.path.abspath(ops_root)
     while not os.path.exists(probe_path) and os.path.dirname(probe_path) != probe_path:
         probe_path = os.path.dirname(probe_path)
+    problem = _data_root_problem(probe_path)
+    if problem:
+        return problem
+    label = data_root_label(ops_root)
     state = "exists" if os.path.isdir(ops) else "is created by the first snapshot"
     if os.stat(memory_dir).st_dev != os.stat(probe_path).st_dev:
         return Check(
             WARN,
             "data-root",
             "%s %s, but it is on a different filesystem than the notes"
-            % (tilde(ops_root), state),
+            % (label, state),
             "restore and promote archive a note with a rename that fails across filesystems; use --ops-root on the same disk as the notes",
         )
     return Check(
         OK,
         "data-root",
-        "%s %s, on the same filesystem as the notes" % (tilde(ops_root), state),
+        "%s %s, on the same filesystem as the notes" % (label, state),
         "",
     )
 
 
-def _count_lines(path):
-    return len([line for line in mc.read_text(path).splitlines() if line.strip()])
+def _data_root_problem(nearest):
+    """A FAIL when the nearest existing folder above the data root cannot hold it: a file, read-only, or under the 2 GB the snapshot needs."""
+    fix = "use --ops-root (or MEMORY_ARBORIST_HOME) on a writable folder outside the notes, on the same disk, with %.0f GB free" % (sn.MIN_FREE_BYTES / 1024**3)
+    if not os.path.isdir(nearest):
+        return Check(FAIL, "data-root", "the data folder cannot be created: a file is in the way", fix)
+    if not os.access(nearest, os.W_OK | os.X_OK):
+        return Check(FAIL, "data-root", "the data folder cannot be created: the nearest existing folder above it is not writable", fix)
+    free = mc.free_bytes(nearest)
+    if free < sn.MIN_FREE_BYTES:
+        return Check(FAIL, "data-root", "only %.1f GB free where the data folder goes; the snapshot step refuses below %.0f GB" % (free / 1024**3, sn.MIN_FREE_BYTES / 1024**3), fix)
+    return None
 
 
 def _pinned_check(pinned, memory_dir):
-    lines = [ln.strip() for ln in mc.read_text(pinned).split("\n") if ln.strip()]
+    text = mc.read_text(pinned)
+    text = text[1:] if text.startswith("\ufeff") else text  # a BOM added by an editor is not part of a line
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
     index = os.path.join(memory_dir, "MEMORY.md") if memory_dir else ""
     if not lines or not os.path.isfile(index):
         return Check(OK, "pinned", "pinned.txt has %d protected index lines" % len(lines), "")
     current = {ln.strip() for ln in mc.read_text(index).split("\n")}
     matching = sum(1 for ln in lines if ln in current)
     if matching == 0:
-        return Check(WARN, "pinned", "none of the %d pinned lines matches a line of MEMORY.md, so nothing is protected" % len(lines), "copy each line exactly as it appears in MEMORY.md, or run memory_dream.py pin --all on an empty pinned.txt location")
+        return Check(WARN, "pinned", "none of the %d pinned lines matches a line of MEMORY.md, so nothing is protected" % len(lines), "copy each line exactly as it appears in MEMORY.md; or move this pinned.txt aside and run memory_dream.py pin --all (it never replaces an existing file), or pin --none if you want no line protected")
     return Check(OK, "pinned", "pinned.txt has %d lines, %d of them match a line of MEMORY.md now" % (len(lines), matching), "")
 
 
-def check_first_run(ops, memory_dir=None):
-    """The files a first model-backed run needs: pinned index lines, recall questions, evidence digests, a snapshot."""
-    checks = []
-    pinned, draft = (
-        os.path.join(ops, "pinned.txt"),
-        os.path.join(ops, "pinned.txt.draft"),
-    )
+def _pinned_state(ops, memory_dir):
+    pinned, draft = os.path.join(ops, "pinned.txt"), os.path.join(ops, "pinned.txt.draft")
     if os.path.isfile(pinned):
-        checks.append(_pinned_check(pinned, memory_dir))
-    elif os.path.isfile(draft):
-        checks.append(
-            Check(
-                WARN,
-                "pinned",
-                "only pinned.txt.draft exists",
-                "confirm it by copying it to pinned.txt, or pass --pinned-draft-ok to the dream run",
-            )
+        return _pinned_check(pinned, memory_dir)
+    if os.path.isfile(draft):
+        return Check(
+            WARN,
+            "pinned",
+            "only pinned.txt.draft exists",
+            "confirm it by copying it to pinned.txt, or pass --pinned-draft-ok to the dream run",
         )
+    return Check(
+        WARN,
+        "pinned",
+        "pinned.txt is missing: the dream run stops at once without it",
+        "run memory_dream.py pin --none (protect no index line) or pin --all (protect every index line of the newest snapshot), then edit the file by hand if you like",
+    )
+
+
+QUESTIONS_FIX = "the question wizard proposes a set from your notes (about 1 USD); see Preconditions in the skill, or run recall/memory_recall_wizard.py propose after a snapshot"
+
+
+def _questions_state(ops):
+    """The question file, read with the judge's own loader: a count alone passes a file the judge refuses to load."""
+    path = os.path.join(ops, "recall", "questions.jsonl")
+    if not os.path.isfile(path):
+        count = 0
     else:
-        checks.append(
-            Check(
-                WARN,
-                "pinned",
-                "pinned.txt is missing: the dream run stops at once without it",
-                "run memory_dream.py pin --none (protect no index line) or pin --all (protect every index line of the newest snapshot), then edit the file by hand if you like",
-            )
-        )
-    questions = os.path.join(ops, "recall", "questions.jsonl")
-    count = _count_lines(questions) if os.path.isfile(questions) else 0
+        try:
+            count = len(mrr.load_questions(path, require_count=False))
+        except mc.HygieneError as err:
+            return Check(WARN, "questions", "the question file does not load: %s" % mc.clean_line(err, 200), "fix that line, or let the wizard write a new set. " + QUESTIONS_FIX)
     if mrr.MIN_QUESTIONS <= count <= mrr.MAX_QUESTIONS:
-        checks.append(Check(OK, "questions", "%d recall questions" % count, ""))
-    else:
-        checks.append(
-            Check(
-                WARN,
-                "questions",
-                "%d recall questions (the judge needs %d to %d)"
-                % (count, mrr.MIN_QUESTIONS, mrr.MAX_QUESTIONS),
-                "the question wizard proposes a set from your notes (about 1 USD); see Preconditions in the skill, or run recall/memory_recall_wizard.py propose after a snapshot",
-            )
-        )
+        return Check(OK, "questions", "%d recall questions" % count, "")
+    return Check(
+        WARN,
+        "questions",
+        "%d recall questions (the judge needs %d to %d)" % (count, mrr.MIN_QUESTIONS, mrr.MAX_QUESTIONS),
+        QUESTIONS_FIX,
+    )
+
+
+def _evidence_state(ops):
     evidence = os.path.join(ops, "evidence")
-    digests = (
-        len([n for n in os.listdir(evidence) if n.endswith(".md")])
-        if os.path.isdir(evidence)
-        else 0
-    )
-    checks.append(
-        Check(OK if digests else INFO, "evidence", "%d evidence digests" % digests, "")
-    )
+    digests = len([n for n in os.listdir(evidence) if n.endswith(".md")]) if os.path.isdir(evidence) else 0
+    return Check(OK if digests else INFO, "evidence", "%d evidence digests" % digests, "")
+
+
+def _snapshots_state(ops):
     snapshots = len(sn.list_snapshots(ops)) if os.path.isdir(ops) else 0
-    checks.append(
-        Check(OK if snapshots else INFO, "snapshots", "%d snapshots" % snapshots, "")
+    return Check(OK if snapshots else INFO, "snapshots", "%d snapshots" % snapshots, "")
+
+
+def check_first_run(ops, memory_dir=None):
+    """The files a first model-backed run needs: pinned index lines, recall questions, evidence digests, a snapshot.
+    Each is read on its own, so one unreadable file is one FAIL and the others still report."""
+    return (
+        _guarded("pinned", _pinned_state, ops, memory_dir)
+        + _guarded("questions", _questions_state, ops)
+        + _guarded("evidence", _evidence_state, ops)
+        + _guarded("snapshots", _snapshots_state, ops)
     )
-    return checks
 
 
 PROBE_SYSTEM = "Answer with exactly one JSON value and nothing else."
@@ -473,7 +528,7 @@ def check_live(runner, model):
                 )
             ]
     shape = _shape(seen[0] if seen else "")
-    return [
+    checks = [
         Check(
             OK,
             "live",
@@ -482,6 +537,16 @@ def check_live(runner, model):
             "",
         )
     ]
+    if spend.total > LIVE_PROBE_USD:
+        checks.append(
+            Check(
+                WARN,
+                "live",
+                "the call cost %.4f USD, more than the %.2f USD cap passed to it" % (spend.total, LIVE_PROBE_USD),
+                "the paid steps also stop at their own total ceiling, but check what your login route and model really charge before approving them (try --model with a smaller model)",
+            )
+        )
+    return checks
 
 
 def _shape(stdout):
@@ -522,18 +587,9 @@ def run_checks(args, environ, probe, runner):
     name, version = plugin_info()
     checks = [Check(INFO, "plugin", "%s %s" % (name, version), ""), check_python()]
     checks += check_claude(probe, environ) + check_login_env(environ)
-    try:
-        checks += check_dirs(memory_dir, ops_root, ops)
-        checks += check_first_run(ops, memory_dir) if os.path.isdir(memory_dir) else []
-    except OSError as err:
-        checks.append(
-            Check(
-                FAIL,
-                "files",
-                "could not read: %s" % (err.strerror or type(err).__name__),
-                "check the permissions of the memory directory and the data root",
-            )
-        )
+    checks += _guarded("files", check_dirs, memory_dir, ops_root, ops)
+    if os.path.isdir(memory_dir):
+        checks += _guarded("files", check_first_run, ops, memory_dir)
     if args.live:
         print(mrr.estimate_line("doctor probe", 1, LIVE_PROBE_USD, LIVE_PROBE_USD))
         checks += check_live(
