@@ -232,5 +232,61 @@ class CommunityFilesTests(unittest.TestCase):
         self.assertIn("security contact request", text)
 
 
+STEP = re.compile(r"^(\d)\. \*\*(.+?)\*\*", re.M)
+STEP_WORDS = {  # one step number must mean the same step in the README and in the skill
+    0: ("check", "doctor"),
+    1: ("safety",),
+    2: ("evidence",),
+    3: ("baseline",),
+    4: ("proposals", "lanes"),
+    5: ("recall check",),
+    6: ("report", "show the user"),
+    7: ("promote",),
+    8: ("undo",),
+}
+
+
+class ReleaseDocsTests(unittest.TestCase):
+    def setUp(self):
+        self.plugin = load_json(".claude-plugin", "plugin.json")
+        self.changelog = th.read(os.path.join(ROOT, "CHANGELOG.md"))
+        self.readme = th.read(os.path.join(ROOT, "README.md"))
+        self.skill = th.read(os.path.join(ROOT, "skills", "tend", "SKILL.md"))
+
+    def test_the_manifest_version_always_has_its_changelog_section(self):
+        headings = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", self.changelog, re.M)
+        self.assertIn(self.plugin["version"], headings)
+
+    def test_the_marketplace_entry_carries_no_second_version(self):
+        for entry in load_json(".claude-plugin", "marketplace.json")["plugins"]:
+            self.assertNotIn("version", entry)
+
+    def test_a_step_number_means_the_same_step_in_the_readme_and_the_skill(self):
+        for name, text in (("README", self.readme), ("SKILL", self.skill)):
+            found = {int(num): label.lower() for num, label in STEP.findall(text)}
+            self.assertEqual(sorted(found), sorted(STEP_WORDS), name)
+            for number, label in found.items():
+                self.assertTrue(any(word in label for word in STEP_WORDS[number]), "%s step %d is %r" % (name, number, label))
+
+    def test_the_documented_commands_keep_bytecode_out_of_the_plugin_folder(self):
+        self.assertIn('python3 -B -I "${CLAUDE_PLUGIN_ROOT}/engine/<script>"', self.skill)
+        self.assertIn("python3 -B -I ~/.claude/plugins/cache/", self.readme)
+
+    def test_the_safety_net_step_lints_before_it_snapshots(self):
+        step = re.search(r"^1\. \*\*Safety net\.\*\*.*$", self.skill, re.M).group(0)
+        self.assertLess(step.index("lint --no-log"), step.index("memory_hygiene.py snapshot"))
+
+    def test_the_changelog_no_longer_says_the_hook_cannot_ask_in_bypass_mode(self):
+        self.assertNotIn("cannot ask in bypass-permissions mode", self.changelog)
+
+    def test_the_security_contact_form_asks_for_no_details_and_blank_issues_stay_off(self):
+        form = th.read(os.path.join(ROOT, ".github", "ISSUE_TEMPLATE", "security_contact.yml"))
+        self.assertIn('title: "security contact request"', form)
+        self.assertIn("type: checkboxes", form)
+        self.assertEqual(form.count("type: textarea"), 0)  # no free-text box for details of the problem
+        self.assertIn("blank_issues_enabled: false", th.read(os.path.join(ROOT, ".github", "ISSUE_TEMPLATE", "config.yml")))
+        self.assertIn("Security contact request", th.read(os.path.join(ROOT, "SECURITY.md")))
+
+
 if __name__ == "__main__":
     unittest.main()

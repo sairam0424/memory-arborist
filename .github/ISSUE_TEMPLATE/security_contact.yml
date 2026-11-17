@@ -1,0 +1,24 @@
+name: Security contact request
+description: Ask the maintainer for a private channel to report a security problem. Put no details here.
+title: "security contact request"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This form is public.** Do not describe the problem here, and do not paste notes, transcripts, keys, file contents or personal data. If GitHub's private vulnerability reporting is available on this repository (Security tab, "Report a vulnerability"), use that instead; this form is only for when it is not.
+
+        Submitting it files an issue titled `security contact request`. The maintainer will answer by arranging a private channel, and the details go there.
+  - type: checkboxes
+    id: no-details
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have put no details of the problem, and no notes, transcripts, keys or personal data, in this issue.
+          required: true
+  - type: input
+    id: channel
+    attributes:
+      label: How can the maintainer reach you privately? (optional)
+      description: Name a channel only, for example "the email address on my GitHub profile". Do not type an address or a phone number into this public issue.
+    validations:
+      required: false

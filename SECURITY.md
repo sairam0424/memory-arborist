@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Use GitHub's private vulnerability reporting on this repository (Security tab, "Report a vulnerability"). If that is not available to you, open a public issue titled "security contact request" that says nothing else (no details, no file contents), and the maintainer will arrange a private channel. Please do not open a public issue for a security problem. Include the version, your platform, and the smallest input that shows it, and leave out your notes and transcripts; the `LANE-ERROR` and `ABORTED` lines can carry a cloud account id or an internal host name from the provider's error, so read them before you paste. One person maintains this: expect an acknowledgement within about a week, not a service level.
+Use GitHub's private vulnerability reporting on this repository (Security tab, "Report a vulnerability"). If that is not available to you, open the "Security contact request" issue form (New issue, then "Security contact request"; free-form blank issues are disabled in this repository, so the form is the way in). It files an issue titled `security contact request`, asks for no details, only for a way to reach you privately, and the maintainer will arrange a private channel. Please do not open a public issue for a security problem. Include the version, your platform, and the smallest input that shows it, and leave out your notes and transcripts; the `LANE-ERROR` and `ABORTED` lines can carry a cloud account id or an internal host name from the provider's error, so read them before you paste. One person maintains this: expect an acknowledgement within about a week, not a service level.
 
 ## Threat model
 

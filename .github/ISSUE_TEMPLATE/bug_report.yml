@@ -11,7 +11,7 @@ body:
     id: doctor
     attributes:
       label: Output of the doctor
-      description: Run `python3 -I <plugin folder>/engine/doctor/memory_doctor.py` from the project whose memory is affected (the README's "Your first run" names the plugin folder) and paste everything it prints. It holds names, versions and counts only, no variable values and no note text.
+      description: Run `python3 -B -I <plugin folder>/engine/doctor/memory_doctor.py` from the project whose memory is affected (the README's "Your first run" names the plugin folder) and paste everything it prints. It holds names, versions and counts only, no variable values and no note text.
       render: text
     validations:
       required: true
