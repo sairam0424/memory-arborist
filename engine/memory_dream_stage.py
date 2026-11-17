@@ -199,6 +199,17 @@ def _hunk_section(hunk):
     )
 
 
+def incomplete_warning(run_dir):
+    """A WARNING line when the staged report starts with the INCOMPLETE banner (some model calls failed during the run)."""
+    try:
+        text = mc.read_text(os.path.join(run_dir, "report.md"))
+    except OSError:
+        return None
+    if "**INCOMPLETE:" not in text:
+        return None
+    return "WARNING this run was INCOMPLETE (some model calls failed, see the banner in report.md): proposals may be missing"
+
+
 INCOMPLETE_BANNER = (
     "**INCOMPLETE: %d model call(s) failed or answered unusably during this run.** A missing proposal below does not mean the note was fine: "
     "read the LANE-ERROR lines of the run, fix the cause (often a login or a flag) and run it again before you rely on this report.\n"

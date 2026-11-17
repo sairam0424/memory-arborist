@@ -261,19 +261,18 @@ def _install(memory, ops, run_dir, prepared, manifest, now):
     done = []
     for rel, tmp in prepared.items():
         live = os.path.join(memory, rel)
-        if mc.sha256_file(live) != manifest["files"][rel]["sha256"]:
-            raise _Partial(
-                "%s changed during the promotion" % mc.printable(rel), done, archive_dir
-            )
         try:
+            if mc.sha256_file(live) != manifest["files"][rel]["sha256"]:
+                raise _Partial("%s changed during the promotion" % mc.printable(rel), done, archive_dir)
             sn._swap_in(memory, tmp, live, archive_dir, rel)
-        except mc.HygieneError as err:
-            raise _Partial(str(err), done, archive_dir)
-        done.append(rel)
-        if mc.sha256_file(live) != mc.sha256_file(os.path.join(run_dir, "memory", rel)):
-            raise _Partial(
-                "read-back check failed for %s" % mc.printable(rel), done, archive_dir
-            )
+            done.append(rel)
+            if mc.sha256_file(live) != mc.sha256_file(os.path.join(run_dir, "memory", rel)):
+                raise _Partial("read-back check failed for %s" % mc.printable(rel), done, archive_dir)
+        except _Partial:
+            raise
+        except (mc.HygieneError, OSError) as err:  # a live note that vanished, an I/O error: whatever was replaced so far is recorded
+            reason = err.strerror if isinstance(err, OSError) and err.strerror else err
+            raise _Partial("%s: %s" % (mc.printable(rel), mc.clean_line(reason, 160)), done, archive_dir)
     return done, archive_dir
 
 
@@ -314,17 +313,6 @@ def _already_promoted_message(run_dir):
     )
 
 
-def _incomplete_warning(run_dir):
-    """A WARNING line when the staged report starts with the INCOMPLETE banner (some model calls failed during the run)."""
-    try:
-        text = mc.read_text(os.path.join(run_dir, "report.md"))
-    except OSError:
-        return None
-    if "**INCOMPLETE:" not in text:
-        return None
-    return "WARNING this run was INCOMPLETE (some model calls failed, see the banner in report.md): proposals may be missing"
-
-
 def _run_dir_of(ops, run_id):
     if not RUN_ID.fullmatch(run_id):
         raise mc.HygieneError("not a dream run id: %s" % mc.printable(run_id))
@@ -335,6 +323,10 @@ def _run_dir_of(ops, run_id):
 
 
 def _record_partial(ops, run_dir, run_id, err, pre):
+    if not err.done and os.path.lexists(os.path.join(run_dir, MARKER)):
+        # another promote of this run finished while this one failed: it is not "promotable again", and nothing more is recorded
+        print("NOTHING was replaced by this attempt: another promote of this run finished first (%s)" % _already_promoted_message(run_dir))
+        return
     data = {
         "status": "partial" if err.done else "failed-before-replacing",
         "files": err.done,
@@ -363,25 +355,32 @@ def _record_partial(ops, run_dir, run_id, err, pre):
 
 
 def _record_promoted(ops, run_dir, run_id, done, pre, snap, archive_dir):
-    _write_marker(
-        run_dir,
-        {
-            "status": "promoted",
-            "files": done,
-            "pre_snapshot": pre["id"],
-            "from_snapshot": snap,
-            "archive": archive_dir,
-        },
+    print(  # first: the way back is on screen whatever happens to the marker or the log
+        "PROMOTED %d notes; pre-promote snapshot %s; old copies in %s"
+        % (len(done), pre["id"], archive_dir)
     )
+    try:
+        _write_marker(
+            run_dir,
+            {
+                "status": "promoted",
+                "files": done,
+                "pre_snapshot": pre["id"],
+                "from_snapshot": snap,
+                "archive": archive_dir,
+            },
+        )
+    except OSError as err:
+        raise mc.HygieneError(
+            "the notes WERE replaced (see the PROMOTED line above) but the run's marker could not be written (%s): do not promote this "
+            "run again; to undo, run `memory_hygiene.py restore --snapshot %s --file <note> --apply --force` for each note"
+            % (mc.clean_line(err.strerror or type(err).__name__, 80), pre["id"])
+        )
     mc.append_log(
         ops,
         "promote",
         "run=%s files=%d" % (run_id, len(done)),
         ["Pre-promote snapshot: " + pre["id"], "Notes: " + ", ".join(done)],
-    )
-    print(
-        "PROMOTED %d notes; pre-promote snapshot %s; old copies in %s"
-        % (len(done), pre["id"], archive_dir)
     )
 
 
@@ -404,7 +403,7 @@ def cmd_promote(args):
     memory, ops = _paths(args)
     run_dir = _run_dir_of(ops, args.run)
     snap, accepted, touched, digest = _promotion_plan(memory, ops, run_dir)
-    warning = _incomplete_warning(run_dir)
+    warning = ds.incomplete_warning(run_dir)
     if warning:
         print(warning)
     if not args.apply:
