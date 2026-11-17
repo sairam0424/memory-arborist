@@ -33,8 +33,11 @@ REASON = (
 )
 CONTINUATION = re.compile(r"\\\r?\n")  # a backslash at the end of a line continues the command
 SEPARATORS = "|;&\n"
-SCRIPT = re.compile(r"\bmemory_[a-z_]+(?:\.py)?\b", re.I)  # the file or the module name (python3 -m memory_dream_run), any case
-DREAM, HYGIENE = re.compile(r"\bmemory_dream(?:\.py)?\b", re.I), re.compile(r"\bmemory_hygiene(?:\.py)?\b", re.I)
+# The file or the module name (python3 -m memory_dream_run), in any case, and glued to a flag (-mmemory_dream) too.
+SCRIPT = re.compile(r"memory_[a-z_]+(?:\.py)?\b", re.I)
+DREAM, HYGIENE = re.compile(r"memory_dream(?:\.py)?\b", re.I), re.compile(r"memory_hygiene(?:\.py)?\b", re.I)
+# `python3 -` runs a script it reads from stdin, which can come from a pipe in another segment: its arguments must decide.
+STDIN_SCRIPT = re.compile(r"\bpython[0-9.]*(?:\s+-[A-Za-z0-9]+)*\s+-(?=\s|$)")
 CASE_WORD = re.compile(r"\bcase\b")  # a case arm has a ) that closes nothing, which the scan cannot tell from the end of a $( )
 CODE_MODES = ("top", "sub", "bt")  # the frames where quotes, comments and separators mean something
 WORD_BREAKS = " \t\n;|&("  # a # right after one of these starts a comment
@@ -54,9 +57,9 @@ def _splits(ch, text, i, prev):
 
 def _step(stack, text, i, prev):
     """Open or close the nesting frame that text[i] opens or closes, as bash does: a quote inside $( ) inside double quotes is a
-    new quote, and a ) inside ${ } closes nothing. Frames: top, sub ($( ) and ( )), bt (backticks), brace (${ }), dq, sq."""
+    new quote, and a ) inside ${ } closes nothing. Frames: top, sub ($( ) and ( )), bt (backticks), brace (${ }), dq, sq, ansi ($'...')."""
     mode, ch = stack[-1], text[i]
-    if mode == "sq":
+    if mode in ("sq", "ansi"):  # in $'...' a backslash escapes the next character (consumed as a pair by the caller)
         if ch == "'":
             stack.pop()
     elif ch == "`":
@@ -67,7 +70,7 @@ def _step(stack, text, i, prev):
     elif mode == "dq" and ch == '"':
         stack.pop()
     elif mode != "dq" and ch in "'\"":
-        stack.append("sq" if ch == "'" else "dq")
+        stack.append(("ansi" if prev == "$" else "sq") if ch == "'" else "dq")
     elif ch == "(" and (prev == "$" or mode in CODE_MODES):
         stack.append("sub")
     elif ch == "{" and prev == "$":
@@ -79,17 +82,22 @@ def _step(stack, text, i, prev):
 def logical_commands(command):
     """The commands of a shell line, split at | ; & and newline that are outside quotes, $( ), ${ } and backticks.
 
-    A backslash-newline is removed (bash joins the lines, even inside a word), a comment is dropped, and redirections such as
+    A backslash-newline is removed where it stands (bash joins the lines, even inside a word, but a comment ends at its newline
+    whatever it ends with), a comment is dropped, and redirections such as
     &> and >| do not split. This is a text scan, not a shell parser, so it falls back to judging the WHOLE text as one command
     whenever it cannot trust itself (a here-document, a case statement, or a quote, bracket or brace left open): a false prompt
     is the safe direction, a missed one is not."""
-    text = CONTINUATION.sub("", command)
-    if "<<" in text or CASE_WORD.search(text):
-        return [text]
+    joined, text = CONTINUATION.sub("", command), command
+    if "<<" in joined or CASE_WORD.search(joined):
+        return [joined]  # judged whole: the comment trick cannot hide anything here, every word counts
     commands, current, stack, prev, i = [], [], ["top"], "", 0
     while i < len(text):
         ch = text[i]
         if ch == "\\" and stack[-1] != "sq" and i + 1 < len(text):
+            line = CONTINUATION.match(text, i)
+            if line:  # backslash-newline: both vanish, the word or the command goes on
+                i = line.end()
+                continue
             current.append(text[i : i + 2])
             prev, i = "\\", i + 2  # an escaped character is part of a word, so a # after it starts no comment
             continue
@@ -105,16 +113,17 @@ def logical_commands(command):
             current.append(ch)
         prev, i = ch, i + 1
     if len(stack) != 1:
-        return [text]
+        return [joined]
     commands.append("".join(current))
     return commands
 
 
 def _gated(one):
+    stdin = STDIN_SCRIPT.search(one)  # the script's name may be in another segment (`cat memory_dream.py | python3 - promote ...`)
     return bool(
-        (DREAM.search(one) and PROMOTE.search(one) and APPLY.search(one))
-        or (HYGIENE.search(one) and RESTORE.search(one) and APPLY.search(one))
-        or (SCRIPT.search(one) and ALLOW.search(one))
+        ((stdin or DREAM.search(one)) and PROMOTE.search(one) and APPLY.search(one))
+        or ((stdin or HYGIENE.search(one)) and RESTORE.search(one) and APPLY.search(one))
+        or ((stdin or SCRIPT.search(one)) and ALLOW.search(one))
     )
 
 
