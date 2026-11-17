@@ -246,6 +246,12 @@ class CustomPathTests(unittest.TestCase):
         )
         self.assertEqual(doc.data_root_label("/srv/client-acme/data"), doc.CUSTOM_PATH)
 
+    def test_a_claude_config_directory_outside_the_home_directory_is_a_custom_path_too(self):
+        # the layout is standard but the folder above it can spell a client or employer name
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": "/srv/client-acme/claude"}):
+            self.assertEqual(doc.memory_label("/srv/client-acme/claude/projects/-x/memory"), doc.CUSTOM_PATH)
+            self.assertEqual(doc.data_root_label("/srv/client-acme/claude/memory-arborist"), doc.CUSTOM_PATH)
+
     def test_a_custom_directory_never_reaches_the_output(self):
         mem = th.make_dir({"MEMORY.md": "# Index\n", "a.md": th.note("a")})
         root = tempfile.mkdtemp(prefix="docacme_")

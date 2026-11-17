@@ -18,7 +18,7 @@ All notable changes are listed here. The format follows Keep a Changelog; versio
 
 ### Added
 - An issue form, "Security contact request" (`.github/ISSUE_TEMPLATE/security_contact.yml`), because blank issues are disabled and the old "open an issue" route could not be used; it asks for no details.
-- `memory_evidence_verify.py` (the digest verification, moved out of `memory_evidence.py`, which had reached the 500-line limit), `memory_common.safe_stdio()`, and 93 new tests (the five suites went from 1,206 to 1,299): gate forms, safe stdio, doctor checks, evidence and oversize notes, promote edges, child robustness, release docs.
+- `memory_evidence_verify.py` (the digest verification, moved out of `memory_evidence.py`, which had reached the 500-line limit), `memory_common.safe_stdio()`, and 94 new tests (the five suites went from 1,206 to 1,300): gate forms, safe stdio, doctor checks, evidence and oversize notes, promote edges, child robustness, release docs.
 
 ## [0.1.0] - 2026-11-16
 

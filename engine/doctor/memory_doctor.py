@@ -128,13 +128,15 @@ def memory_label(path):
     any other path can spell a user, client or employer name, so it is shown as <custom path>."""
     parent, leaf = os.path.split(os.path.abspath(path))
     standard = leaf == "memory" and os.path.dirname(parent) == locate.projects_root()
-    return shown(path) if standard else CUSTOM_PATH
+    label = shown(path) if standard else CUSTOM_PATH
+    return label if label.startswith("~") else CUSTOM_PATH  # a config directory outside the home directory can spell any name
 
 
 def data_root_label(path):
     """The data root for the output: the standard <claude home>/memory-arborist with ~, anything else as <custom path>."""
     standard = os.path.abspath(path) == os.path.join(locate.claude_home(), "memory-arborist")
-    return tilde(path) if standard else CUSTOM_PATH
+    label = tilde(path) if standard else CUSTOM_PATH
+    return label if label.startswith("~") else CUSTOM_PATH
 
 
 def scrub(text):
