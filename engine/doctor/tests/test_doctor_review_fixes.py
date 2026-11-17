@@ -312,5 +312,18 @@ class JudgeModelNoteTests(WithClaudeOnPath):
         self.assertNotIn("acme-prod", text)
 
 
+class EachFileCheckStandsAloneTests(unittest.TestCase):
+    """One file or folder that cannot be read is one FAIL; the other first-run checks still report."""
+
+    def test_a_snapshot_listing_that_fails_is_one_failure_and_the_others_still_report(self):
+        ops = tempfile.mkdtemp(prefix="docops_")
+        with mock.patch.object(doc.sn, "list_snapshots", side_effect=OSError(5, "Input/output error")):
+            checks = doc.check_first_run(ops)
+        by_name = {c.name: c.status for c in checks}
+        self.assertEqual(by_name["snapshots"], doc.FAIL)
+        for name in ("pinned", "questions", "evidence"):
+            self.assertIn(name, by_name)
+
+
 if __name__ == "__main__":
     unittest.main()
