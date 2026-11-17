@@ -127,7 +127,7 @@ def _check_question(rec, number):
     for pattern in must + forbid:
         try:
             re.compile(pattern)
-        except re.error as err:
+        except (re.error, OverflowError) as err:
             raise mc.HygieneError("%s: bad regex %r (%s)" % (where, pattern, err))
 
 

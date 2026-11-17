@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.join(SCRIPTS, "dream"))
 import memory_common as mc  # noqa: E402
 import memory_dream_lanes as lanes  # noqa: E402
 import memory_locate as locate  # noqa: E402
+import memory_redact as mr  # noqa: E402
 import memory_recall_run as mrr  # noqa: E402
 import memory_snapshot as sn  # noqa: E402
 
@@ -123,18 +124,24 @@ def shown(path):
 CUSTOM_PATH = "<custom path>"
 
 
+def _is_default_claude_home():
+    """True only for ~/.claude itself: a config directory chosen with CLAUDE_CONFIG_DIR can sit under a client or employer folder."""
+    default = os.path.join(os.path.expanduser("~"), ".claude")
+    return os.path.abspath(locate.claude_home()) == os.path.abspath(default)
+
+
 def memory_label(path):
-    """The memory directory for the output: the standard <claude home>/projects/<project>/memory is shown with ~ and <project>;
+    """The memory directory for the output: the standard ~/.claude/projects/<project>/memory is shown with ~ and <project>;
     any other path can spell a user, client or employer name, so it is shown as <custom path>."""
     parent, leaf = os.path.split(os.path.abspath(path))
-    standard = leaf == "memory" and os.path.dirname(parent) == locate.projects_root()
+    standard = _is_default_claude_home() and leaf == "memory" and os.path.dirname(parent) == locate.projects_root()
     label = shown(path) if standard else CUSTOM_PATH
-    return label if label.startswith("~") else CUSTOM_PATH  # a config directory outside the home directory can spell any name
+    return label if label.startswith("~") else CUSTOM_PATH
 
 
 def data_root_label(path):
-    """The data root for the output: the standard <claude home>/memory-arborist with ~, anything else as <custom path>."""
-    standard = os.path.abspath(path) == os.path.join(locate.claude_home(), "memory-arborist")
+    """The data root for the output: the standard ~/.claude/memory-arborist with ~, anything else as <custom path>."""
+    standard = _is_default_claude_home() and os.path.abspath(path) == os.path.join(locate.claude_home(), "memory-arborist")
     label = tilde(path) if standard else CUSTOM_PATH
     return label if label.startswith("~") else CUSTOM_PATH
 
@@ -147,6 +154,21 @@ def scrub(text):
     if home and home != "/":
         text = re.sub(re.escape(home) + r"(?=/|$)", "~", text)
     return mrr.ARN.sub("<arn>", mrr.ACCOUNT_ID.sub("<account-id>", text))
+
+
+# An absolute path of two or more parts that is not already shortened to ~ . A single word after a slash (`/login`, `/help`) is a
+# slash command, not a folder; a URL, a ~ path and a relative path are left alone.
+ABSOLUTE_PATH = re.compile(r"(?<![\w~:/.])/[^\s/:;,'\"()<>\[\]]+(?:/[^\s:;,'\"()<>\[\]]+)+")
+
+
+def scrub_paths(text):
+    """scrub(), then every absolute path outside the home directory as <path>: a child's error line can name a client folder."""
+    return ABSOLUTE_PATH.sub("<path>", scrub(text))
+
+
+def scrub_child(text, limit=160):
+    """One line a child process printed, made safe to paste: paths and account ids replaced, a line that looks like a secret withheld."""
+    return mr.sanitize(scrub_paths(mc.clean_line(text, 400)), limit).excerpt or mrr.WITHHELD_FAILURE_LINE
 
 
 def plugin_info():
@@ -179,14 +201,13 @@ def subprocess_probe(argv, env):
             env=env,
             stdin=subprocess.DEVNULL,
             capture_output=True,
-            text=True,
             timeout=PROBE_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
         return 124, "", "timed out"
     except OSError as err:
         return 127, "", err.strerror or type(err).__name__
-    return proc.returncode, proc.stdout, proc.stderr
+    return proc.returncode, mrr.decode_output(proc.stdout), mrr.decode_output(proc.stderr)
 
 
 def _no_answer(code, err, command, default):
@@ -194,7 +215,7 @@ def _no_answer(code, err, command, default):
     if code == 124:
         return "%s did not answer within %d seconds" % (command, PROBE_TIMEOUT_SECONDS)
     if code == 127:
-        return "%s could not be started (%s)" % (command, scrub(mc.clean_line(err, 120)))
+        return "%s could not be started (%s)" % (command, scrub_child(err, 120))
     return default
 
 
@@ -340,9 +361,9 @@ def _guarded(name, function, *args):
     """Run one check as a list of Checks. A file or folder that cannot be read makes THIS check a FAIL; it never hides the others."""
     try:
         result = function(*args)
-    except (OSError, ValueError, RecursionError, mc.HygieneError) as err:
+    except (OSError, ValueError, ArithmeticError, RecursionError, mc.HygieneError) as err:
         reason = getattr(err, "strerror", None) or mc.clean_line(err, 160) or type(err).__name__
-        return [Check(FAIL, name, "could not read: %s" % scrub(reason), "check the permissions of that file or folder")]
+        return [Check(FAIL, name, "could not read: %s" % scrub_paths(reason), "check the permissions of that file or folder")]
     return result if isinstance(result, list) else [result]
 
 
@@ -378,15 +399,13 @@ def _data_root_check(memory_dir, ops_root, ops):
             "the data root lies inside the memory directory, which every command refuses",
             "use --ops-root (or MEMORY_ARBORIST_HOME) on a folder outside the notes, on the same disk",
         )
-    probe_path = os.path.abspath(ops_root)
-    while not os.path.exists(probe_path) and os.path.dirname(probe_path) != probe_path:
-        probe_path = os.path.dirname(probe_path)
+    probe_path = _nearest_existing(ops_root)
     problem = _data_root_problem(probe_path)
     if problem:
         return problem
     label = data_root_label(ops_root)
     state = "exists" if os.path.isdir(ops) else "is created by the first snapshot"
-    if os.stat(memory_dir).st_dev != os.stat(probe_path).st_dev:
+    if os.stat(_nearest_existing(memory_dir)).st_dev != os.stat(probe_path).st_dev:
         return Check(
             WARN,
             "data-root",
@@ -400,6 +419,14 @@ def _data_root_check(memory_dir, ops_root, ops):
         "%s %s, on the same filesystem as the notes" % (label, state),
         "",
     )
+
+
+def _nearest_existing(path):
+    """The path itself or the closest folder above it that exists (a data root or a memory folder is created later)."""
+    probe = os.path.abspath(path)
+    while not os.path.exists(probe) and os.path.dirname(probe) != probe:
+        probe = os.path.dirname(probe)
+    return probe
 
 
 def _data_root_problem(nearest):
@@ -448,6 +475,32 @@ def _pinned_state(ops, memory_dir):
     )
 
 
+# The loader's messages quote the line they refuse (a regex, a kind, an id); only these fixed phrases are ever shown.
+QUESTION_PROBLEMS = (
+    "not an object",
+    "not valid JSON",
+    "unknown kind",
+    "bad regex",
+    "duplicate id",
+    "must needs at least one regex",
+    "forbid must be a list of regexes",
+    "a drift probe names its truth file",
+)
+UNKNOWN_PROBLEM = "a problem the doctor cannot describe safely (run the judge to read it)"
+
+
+def question_problem(text):
+    """'line N: <kind of problem>' from a question-loader message, without the text of the line it refused."""
+    text = str(text)
+    match = re.match(r"line (\d+): (.*)", text, re.S)
+    if not match:
+        return text if re.fullmatch(r"\d+ questions; the set needs \d+ to \d+", text) else UNKNOWN_PROBLEM
+    number, rest = match.groups()
+    named = re.fullmatch(r"missing (id|kind|question)", rest)
+    found = named.group(0) if named else next((p for p in QUESTION_PROBLEMS if rest.startswith(p)), UNKNOWN_PROBLEM)
+    return "line %s: %s" % (number, found)
+
+
 QUESTIONS_FIX = "the question wizard proposes a set from your notes (about 1 USD); see Preconditions in the skill, or run recall/memory_recall_wizard.py propose after a snapshot"
 
 
@@ -460,7 +513,9 @@ def _questions_state(ops):
         try:
             count = len(mrr.load_questions(path, require_count=False))
         except mc.HygieneError as err:
-            return Check(WARN, "questions", "the question file does not load: %s" % mc.clean_line(err, 200), "fix that line, or let the wizard write a new set. " + QUESTIONS_FIX)
+            return Check(WARN, "questions", "the question file does not load: %s" % question_problem(err), "fix that line, or let the wizard write a new set. " + QUESTIONS_FIX)
+        except UnicodeDecodeError:
+            return Check(WARN, "questions", "the question file is not valid UTF-8 text", "save it as plain UTF-8, or let the wizard write a new set. " + QUESTIONS_FIX)
     if mrr.MIN_QUESTIONS <= count <= mrr.MAX_QUESTIONS:
         return Check(OK, "questions", "%d recall questions" % count, "")
     return Check(
@@ -525,7 +580,7 @@ def check_live(runner, model):
                 Check(
                     FAIL,
                     "live",
-                    "the call failed: %s" % scrub(mc.clean_line(err, 300)),
+                    "the call failed: %s" % scrub_paths(mc.clean_line(err, 300)),
                     "fix the cause above, then run --live again",
                 )
             ]
@@ -535,7 +590,7 @@ def check_live(runner, model):
             OK,
             "live",
             "one call answered (model %s, %s, tools reported: none, cost about %.4f USD)"
-            % (model, shape, spend.total),
+            % (scrub(model), shape, spend.total),
             "",
         )
     ]
@@ -590,14 +645,28 @@ def run_checks(args, environ, probe, runner):
     checks = [Check(INFO, "plugin", "%s %s" % (name, version), ""), check_python()]
     checks += check_claude(probe, environ) + check_login_env(environ)
     checks += _guarded("files", check_dirs, memory_dir, ops_root, ops)
-    if os.path.isdir(memory_dir):
-        checks += _guarded("files", check_first_run, ops, memory_dir)
+    has_memory = os.path.isdir(memory_dir)
+    if not has_memory:  # the data root and the first-run files only need the data root
+        checks += _guarded("data-root", _data_root_check, memory_dir, ops_root, ops)
+    checks += _guarded("files", check_first_run, ops, memory_dir if has_memory else None)
     if args.live:
         print(mrr.estimate_line("doctor probe", 1, LIVE_PROBE_USD, LIVE_PROBE_USD))
-        checks += check_live(
-            runner, args.model or environ.get(ENV_LANE_MODEL) or "sonnet"
-        )
+        lane_model = args.model or environ.get(ENV_LANE_MODEL) or "sonnet"
+        checks += check_live(runner, lane_model)
+        checks.append(_judge_model_note(environ))
     return checks
+
+
+def _judge_model_note(environ):
+    """--live proves the lane model only; the recall judge defaults to a different model, so say which one was not tried."""
+    judge = environ.get(mrr.ENV_JUDGE_MODEL) or mrr.DEFAULT_MODEL
+    return Check(
+        INFO,
+        "live",
+        "the recall judge uses model %s (set %s to change it), which this call did not try; a login route can serve one model alias and refuse another"
+        % (scrub(judge), mrr.ENV_JUDGE_MODEL),
+        "",
+    )
 
 
 def build_parser():
