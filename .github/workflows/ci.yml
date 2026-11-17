@@ -44,9 +44,9 @@ jobs:
       - name: Seeded acceptance harness
         working-directory: dev/acceptance
         run: python -I -m unittest discover -s tests -p 'test_seeded.py'
-      - name: Release tooling (history checker)
+      - name: Release tooling (history checker and rewrite)
         working-directory: dev/release
-        run: python -I -m unittest discover -s tests -p 'test_check_history.py'
+        run: python -I -m unittest discover -s tests -p 'test_*.py'
 
   dco:
     name: sign-off check

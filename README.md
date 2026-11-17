@@ -156,7 +156,7 @@ python3 -I -m unittest discover -s doctor/tests -p 'test_doctor_*.py'
 cd ../dev/acceptance
 python3 -I -m unittest discover -s tests -p 'test_seeded.py'
 cd ../release
-python3 -I -m unittest discover -s tests -p 'test_check_history.py'
+python3 -I -m unittest discover -s tests -p 'test_*.py'
 ```
 
 `dev/harness/` holds mutation checks that edit a temporary copy of the engine and expect the tests to fail. A few timing assertions in the safety-net suite can fail on a heavily loaded machine; rerun when it is idle.

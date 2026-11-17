@@ -9,6 +9,7 @@ All notable changes are listed here. The format follows Keep a Changelog; versio
 
 ### Added
 - `dev/release/check_history.py`: checks every revision of a repository against the maintainer's private word list however a word was written (split string fragments, other case, punctuation between parts, file names, commit and tag messages, author lines), prints entry numbers, counts and short commit ids and never a word, and can allow one identity in commit metadata. The old `git log -p | grep -f` check could not see split fragments. 16 tests, run in CI.
+- `dev/release/rewrite_history.py`: rebuilds a repository's history as a new root plus a replay of every later commit in a fresh repository, keeping each commit's tree, authors, dates and message and recreating chosen tags, so the early commits that must not be published are not in the result (not even as unreachable objects). It refuses merges, signed commits and tags on dropped commits, never changes the source, and verifies its own output. 17 tests, run in CI.
 
 ## [0.1.1] - 2026-11-17
 
