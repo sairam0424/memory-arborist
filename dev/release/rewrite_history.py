@@ -228,6 +228,7 @@ def verify(dest, commits, mapping):
 
 
 def run(args):
+    args.source, args.dest = os.path.abspath(args.source), os.path.abspath(args.dest)  # git runs from a temporary folder
     if not os.path.isdir(args.source):
         raise UsageError("not a directory: %s" % args.source)
     check_destination(args.dest)

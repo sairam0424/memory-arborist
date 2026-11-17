@@ -213,6 +213,21 @@ class RewriteTests(unittest.TestCase):
         self.assertEqual(before, after)
 
 
+class RelativePathTests(unittest.TestCase):
+    def test_relative_source_and_destination_paths_work(self):
+        src = Source()
+        parent = os.path.dirname(src.path)
+        dest_name = "relative-new-" + os.path.basename(src.path)
+        done = subprocess.run(
+            [sys.executable, "-B", "-I", TOOL, "--source", os.path.basename(src.path), "--dest", dest_name, "--root", src.shas[2]],
+            capture_output=True,
+            text=True,
+            cwd=parent,
+        )
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(git(os.path.join(parent, dest_name), "rev-list", "--count", "main").strip(), "3")
+
+
 class VerificationTests(unittest.TestCase):
     """The tool's own check must be able to fail: it is the last thing between a replay bug and a published history."""
 
