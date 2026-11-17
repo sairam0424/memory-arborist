@@ -174,8 +174,12 @@ class ScanBudgetTests(unittest.TestCase):
 
 
 class HooksRuleTests(unittest.TestCase):
-    """The host's `if` glob decides whether the gate starts at all, and the glob is order-dependent, so the rules must not depend
-    on where the script name stands. The matcher is modelled here as the glob it is documented to be."""
+    """The host's `if` rule decides whether the gate starts at all. Two things were measured on Claude Code 2.1.326 with a
+    diagnostic plugin (2026-11-18): the glob is matched against the command WITHOUT its redirections (a script name that is only
+    a `< file` or `> file` target does not match), so the rules key on the two flags, which are always arguments. The matcher is
+    modelled here as that glob over the command with its redirections removed."""
+
+    REDIRECTION = re.compile(r"\s*[<>]+\s*\S+")
 
     @staticmethod
     def rule_regex(rule):
@@ -188,16 +192,20 @@ class HooksRuleTests(unittest.TestCase):
         handlers = [h for block in hooks["hooks"]["PreToolUse"] for h in block["hooks"]]
         self.rules = [self.rule_regex(h["if"]) for h in handlers]
 
+    def starts_the_gate(self, command):
+        seen = self.REDIRECTION.sub("", command)
+        return any(rx.fullmatch(seen) for rx in self.rules)
+
     def test_every_spelling_the_gate_recognises_also_starts_the_gate(self):
-        for command in (
-            NESTED_QUOTES + ESCAPED_HASH + CLOSERS_THAT_CLOSE_NOTHING + OTHER_SPELLINGS
-        ):
-            if command.startswith("python3 MEMORY_DREAM.PY"):
-                continue  # the host's glob is case-sensitive: documented as not covered
+        for command in NESTED_QUOTES + ESCAPED_HASH + CLOSERS_THAT_CLOSE_NOTHING + OTHER_SPELLINGS:
             with self.subTest(command):
-                self.assertTrue(
-                    any(rx.fullmatch(command) for rx in self.rules), command
-                )
+                self.assertTrue(self.starts_the_gate(command), command)
+
+    def test_a_script_name_that_is_only_a_redirection_target_does_not_stop_the_gate_from_starting(self):
+        command = "python3 -B - promote RUN --apply --expect abc < engine/memory_dream.py"
+        self.assertTrue(self.starts_the_gate(command))
+        name_rule = self.rule_regex("Bash(*memory_*)")  # the rule this replaced: it never saw the name
+        self.assertIsNone(name_rule.fullmatch(self.REDIRECTION.sub("", command)))
 
     def test_a_flag_that_is_followed_by_more_arguments_starts_the_gate(self):
         for command in (
@@ -205,20 +213,12 @@ class HooksRuleTests(unittest.TestCase):
             "python3 -I memory_dream_run.py run --allow-secret-shapes \\\n  --workers 2",
         ):
             with self.subTest(command):
-                self.assertTrue(
-                    any(rx.fullmatch(command) for rx in self.rules), command
-                )
+                self.assertTrue(self.starts_the_gate(command), command)
 
-    def test_an_unrelated_command_does_not_start_the_gate(self):
-        for command in (
-            "ls ~/.claude",
-            "git commit -m 'fix the promote step'",
-            "echo --apply",
-        ):
+    def test_a_command_without_either_flag_does_not_start_the_gate(self):
+        for command in ("ls ~/.claude", "git commit -m 'fix the promote step'", "python3 -I memory_dream.py promote RUN"):
             with self.subTest(command):
-                self.assertFalse(
-                    any(rx.fullmatch(command) for rx in self.rules), command
-                )
+                self.assertFalse(self.starts_the_gate(command), command)
 
 
 if __name__ == "__main__":

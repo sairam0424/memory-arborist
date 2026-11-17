@@ -19,7 +19,14 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(*memory_*)",
+            "if": "Bash(*--apply*)",
+            "command": "python3",
+            "args": ["-B", "-I", "${CLAUDE_PLUGIN_ROOT}/engine/memory_confirm_gate.py"],
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "if": "Bash(*--allow-secret-shapes*)",
             "command": "python3",
             "args": ["-B", "-I", "${CLAUDE_PLUGIN_ROOT}/engine/memory_confirm_gate.py"],
             "timeout": 5

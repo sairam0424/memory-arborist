@@ -130,7 +130,7 @@ def decision(stdin_text, cut=False):
     """The JSON line to print, or '' when the hook has nothing to say.
 
     `cut` says the input filled the read limit, so the command may continue past what was read. The host only starts this hook for
-    a command that mentions a memory_ script, so a payload this long is asked about rather than waved through."""
+    a command that carries --apply or --allow-secret-shapes, so a payload this long is asked about rather than waved through."""
     if cut:
         return _ask()
     try:
