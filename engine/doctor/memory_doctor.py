@@ -122,6 +122,7 @@ def shown(path):
 
 
 CUSTOM_PATH = "<custom path>"
+CUSTOM_MODEL = "<custom model>"
 
 
 def _is_default_claude_home():
@@ -156,19 +157,37 @@ def scrub(text):
     return mrr.ARN.sub("<arn>", mrr.ACCOUNT_ID.sub("<account-id>", text))
 
 
-# An absolute path of two or more parts that is not already shortened to ~ . A single word after a slash (`/login`, `/help`) is a
-# slash command, not a folder; a URL, a ~ path and a relative path are left alone.
-ABSOLUTE_PATH = re.compile(r"(?<![\w~:/.])/[^\s/:;,'\"()<>\[\]]+(?:/[^\s:;,'\"()<>\[\]]+)+")
+# What a child's error line can carry that names a folder: an absolute path of two or more parts (a folder name may hold spaces, which
+# macOS folders often do, so a space is allowed in every part but the last), a file: URL, a path under the home folder other than
+# ~/.claude, and a relative path that starts with ./ or ../. A single word after a slash (`/login`, `/help`) is a slash command, and an
+# ordinary URL is left alone (its slashes follow a word character or another slash).
+ABSOLUTE_PATH = re.compile(r"(?<![\w~/.])/(?:[^/\n:;,'\"()<>\[\]]+/)+[^\s/:;,'\"()<>\[\]]+")
+FILE_URL = re.compile(r"\bfile:/{1,3}[^\s'\"()<>\[\]]+", re.I)
+HOME_PATH = re.compile(r"(?<![\w/])~/(?!\.claude(?:[/\s]|$))[^\s:;,'\"()<>\[\]]+")
+RELATIVE_PATH = re.compile(r"(?<![\w~/.])\.{1,2}(?:/[^\s/:;,'\"()<>\[\]]+)+")
+MCP_TOOL = re.compile(r"\bmcp__[A-Za-z0-9_.:-]+")  # mcp__<server>__<tool>: either part can carry a client's name
 
 
 def scrub_paths(text):
-    """scrub(), then every absolute path outside the home directory as <path>: a child's error line can name a client folder."""
-    return ABSOLUTE_PATH.sub("<path>", scrub(text))
+    """scrub(), then every folder name a child's text can carry replaced by <path> (see the patterns above)."""
+    text = MCP_TOOL.sub("mcp__<name>", FILE_URL.sub("<path>", scrub(text)))
+    text = HOME_PATH.sub("~/<path>", text)
+    return RELATIVE_PATH.sub("<path>", ABSOLUTE_PATH.sub("<path>", text))
 
 
 def scrub_child(text, limit=160):
     """One line a child process printed, made safe to paste: paths and account ids replaced, a line that looks like a secret withheld."""
-    return mr.sanitize(scrub_paths(mc.clean_line(text, 400)), limit).excerpt or mrr.WITHHELD_FAILURE_LINE
+    line = scrub_paths(mc.clean_line(text, 400))
+    if not line.strip():
+        return "no message"  # sanitize() gives nothing for an empty line, which is not a secret
+    return mr.sanitize(line, limit).excerpt or mrr.WITHHELD_FAILURE_LINE
+
+
+def shown_model(model):
+    """A model string for the output: invisible and line-separator characters removed, and a path or URL (an inference profile, a
+    project, an endpoint can carry a client's name) shown as <custom model>; a plain alias or model id is shown as it is."""
+    text = "".join(ch for ch in mr.normalize(str(model)) if ch.isprintable())  # also drops U+2028 and U+2029
+    return CUSTOM_MODEL if "/" in text else scrub(text)
 
 
 def plugin_info():
@@ -590,7 +609,7 @@ def check_live(runner, model):
             OK,
             "live",
             "one call answered (model %s, %s, tools reported: none, cost about %.4f USD)"
-            % (scrub(model), shape, spend.total),
+            % (shown_model(model), shape, spend.total),
             "",
         )
     ]
@@ -652,7 +671,7 @@ def run_checks(args, environ, probe, runner):
     if args.live:
         print(mrr.estimate_line("doctor probe", 1, LIVE_PROBE_USD, LIVE_PROBE_USD))
         lane_model = args.model or environ.get(ENV_LANE_MODEL) or "sonnet"
-        checks += check_live(runner, lane_model)
+        checks += _guarded("live", check_live, runner, lane_model)
         checks.append(_judge_model_note(environ))
     return checks
 
@@ -664,7 +683,7 @@ def _judge_model_note(environ):
         INFO,
         "live",
         "the recall judge uses model %s (set %s to change it), which this call did not try; a login route can serve one model alias and refuse another"
-        % (scrub(judge), mrr.ENV_JUDGE_MODEL),
+        % (shown_model(judge), mrr.ENV_JUDGE_MODEL),
         "",
     )
 

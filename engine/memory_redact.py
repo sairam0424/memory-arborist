@@ -93,7 +93,9 @@ UPI = re.compile(r"\b[A-Za-z0-9._-]{3,64}@(?:ok[a-z]{2,6}|ybl|paytm|ibl|axl|upi|
 LONG_ID = re.compile(r"(?<![\d-])(?:[2-9][0-9]{11}|[2-9][0-9]{3}-[0-9]{4}-[0-9]{4})(?![\d-])")
 SSN = re.compile(r"(?<![\d-])\d{3}-\d{2}-\d{4}(?![\d-])")
 TWELVE_DIGITS = re.compile(r"(?<![\d-])(?<!\d\s)\d{4}\s\d{4}\s\d{4}(?![\d-])(?!\s\d)")
-CARD = re.compile(r"(?<![\d-])(?:\d[ -]?){12,18}\d(?![\d-])")
+# A run of digits joined by single spaces or hyphens, however long (a card may sit after a date or an order id).
+CARD_RUN = re.compile(r"\d(?:[ -]?\d)*")
+DIGIT_GROUP = re.compile(r"\d+")
 Redaction = namedtuple("Redaction", "excerpt secret pii oversize")
 
 
@@ -293,28 +295,44 @@ def _luhn_ok(digits):
     return total % 10 == 0
 
 
-def _mask_card(match):
-    text = match.group(0)
-    digits = re.sub(r"\D", "", text)
-    if 13 <= len(digits) <= 19 and _luhn_ok(digits):
-        return "[card]"
-    return _mask_card_window(text)
+def _card_shaped(sizes):
+    """Digit groups as a card number is written: one group, or groups of four or more that end in a group of three or more."""
+    return len(sizes) == 1 or (all(size >= 4 for size in sizes[:-1]) and sizes[-1] >= 3)
 
 
-def _mask_card_window(text):
-    """The whole run failed the Luhn check, as it does when a card is followed or preceded by more digits (an expiry date, a
-    security code). Replace the longest stretch of whole digit groups of 13 to 19 digits that passes, and keep the rest."""
-    groups = [(found.start(), found.end()) for found in re.finditer(r"\d+", text)]
-    best = None
+def _card_groups(text):
+    """Indices of the digit groups of a run that lie in at least one stretch of whole groups, 13 to 19 digits, written like a
+    card number, that passes the Luhn check. Overlapping stretches all count: masking too much is the safe direction."""
+    groups = [found.span() for found in DIGIT_GROUP.finditer(text)]
+    hit = set()
     for first in range(len(groups)):
+        sizes = []
         for last in range(first, len(groups)):
-            span = (groups[first][0], groups[last][1])
-            digits = re.sub(r"\D", "", text[span[0] : span[1]])
-            if len(digits) > 19:
-                break
-            if len(digits) >= 13 and _luhn_ok(digits) and (best is None or len(digits) > best[0]):
-                best = (len(digits), span)
-    return text if best is None else text[: best[1][0]] + "[card]" + text[best[1][1] :]
+            sizes.append(groups[last][1] - groups[last][0])
+            if sum(sizes) > 19 or (len(sizes) > 1 and sizes[-2] < 4):
+                break  # too long for a card, or a group that is not the last is already too short to be one
+            if sum(sizes) >= 13 and _card_shaped(sizes) and _luhn_ok(re.sub(r"\D", "", text[groups[first][0] : groups[last][1]])):
+                hit.update(range(first, last + 1))
+    return groups, hit
+
+
+def _mask_card(match):
+    """The run with every card-like stretch replaced by [card] and the digits around it kept ("2025-11-17 [card] 12/27")."""
+    text = match.group(0)
+    if sum(found.end() - found.start() for found in DIGIT_GROUP.finditer(text)) < 13:
+        return text
+    groups, hit = _card_groups(text)
+    out, pos, index = [], 0, 0
+    while index < len(groups):
+        if index not in hit:
+            index += 1
+            continue
+        end = index
+        while end + 1 in hit:
+            end += 1
+        out.append(text[pos : groups[index][0]] + "[card]")
+        pos, index = groups[end][1], end + 1
+    return "".join(out) + text[pos:]
 
 
 def mask_pii(text):
@@ -327,7 +345,7 @@ def mask_pii(text):
     masked = PHONE.sub("[phone]", masked)
     masked = SSN.sub("[ssn]", masked)
     masked = TWELVE_DIGITS.sub("[id]", masked)
-    masked = CARD.sub(_mask_card, masked)
+    masked = CARD_RUN.sub(_mask_card, masked)
     return masked, masked != text
 
 

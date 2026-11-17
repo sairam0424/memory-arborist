@@ -306,11 +306,19 @@ def _swap_in(memory_dir, tmp, live, archive_dir, clean):
     try:
         os.replace(tmp, live)
     except OSError as err:
+        reason = err.strerror or type(err).__name__
+        staged = "the staged copy %s is safe to remove by hand (this tool never deletes)" % mc.printable(tmp)
         if archived:
-            os.replace(archived, live)  # put the original back
+            try:
+                os.replace(archived, live)  # put the original back
+            except OSError:
+                raise HygieneError(
+                    "could not place the restored file (%s) and could not put the original back: it is at %s; %s"
+                    % (reason, mc.printable(archived), staged)
+                )
         raise HygieneError(
-            "could not place the restored file (%s); the original was put back"
-            % err.strerror
+            "could not place the restored file (%s)%s; %s"
+            % (reason, "; the original was put back" if archived else "", staged)
         )
     return ["archived live copy -> %s" % mc.printable(archived)] if archived else []
 
