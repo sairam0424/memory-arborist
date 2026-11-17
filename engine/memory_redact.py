@@ -294,8 +294,27 @@ def _luhn_ok(digits):
 
 
 def _mask_card(match):
-    digits = re.sub(r"\D", "", match.group(0))
-    return "[card]" if 13 <= len(digits) <= 19 and _luhn_ok(digits) else match.group(0)
+    text = match.group(0)
+    digits = re.sub(r"\D", "", text)
+    if 13 <= len(digits) <= 19 and _luhn_ok(digits):
+        return "[card]"
+    return _mask_card_window(text)
+
+
+def _mask_card_window(text):
+    """The whole run failed the Luhn check, as it does when a card is followed or preceded by more digits (an expiry date, a
+    security code). Replace the longest stretch of whole digit groups of 13 to 19 digits that passes, and keep the rest."""
+    groups = [(found.start(), found.end()) for found in re.finditer(r"\d+", text)]
+    best = None
+    for first in range(len(groups)):
+        for last in range(first, len(groups)):
+            span = (groups[first][0], groups[last][1])
+            digits = re.sub(r"\D", "", text[span[0] : span[1]])
+            if len(digits) > 19:
+                break
+            if len(digits) >= 13 and _luhn_ok(digits) and (best is None or len(digits) > best[0]):
+                best = (len(digits), span)
+    return text if best is None else text[: best[1][0]] + "[card]" + text[best[1][1] :]
 
 
 def mask_pii(text):

@@ -256,12 +256,12 @@ def _unsafe_name(memory_dir, clean):
 
 def _archive_file(live, archive_dir, clean):
     dest = mc.unique_path(os.path.join(archive_dir, clean))
-    mc.makedirs_private(os.path.dirname(dest))
     try:
+        mc.makedirs_private(os.path.dirname(dest))
         os.replace(live, dest)
-    except OSError as err:
+    except OSError as err:  # the folder could not be made, or the note could not be moved: either way nothing was replaced
         raise HygieneError(
-            "could not archive %s: %s" % (mc.printable(clean), err.strerror)
+            "could not archive %s: %s" % (mc.printable(clean), err.strerror or type(err).__name__)
         )
     return dest
 

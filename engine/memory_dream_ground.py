@@ -23,6 +23,7 @@ KINDS = ("edit", "index_edit")
 INDEX_NAME = "MEMORY.md"
 MIN_OLD, MIN_QUOTE = 12, 20
 GROWTH_FACTOR, GROWTH_SLACK = 1.5, 200
+MAX_HUNK_CHARS = 6000  # the token scan of the new text is not linear in a long run of dotted words: bound what it is given
 SHRINK_FLOOR, SHRINK_CHECK_FROM = 0.3, 100
 FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.md")
 HUNK_ID = re.compile(r"[A-Za-z0-9_-]{1,32}")
@@ -170,6 +171,8 @@ def _size_problem(old, new):
         return "new text grows too much"
     if len(old) > SHRINK_CHECK_FROM and len(new) < len(old) * SHRINK_FLOOR:
         return "new text removes most of the old text"
+    if len(new) > MAX_HUNK_CHARS:
+        return "the new text is too long to check (at most %d characters): propose a smaller span" % MAX_HUNK_CHARS
     return None
 
 

@@ -188,13 +188,13 @@ def build_all(
             break
         session_id = os.path.basename(path)[: -len(".jsonl")]
         target = os.path.join(out, session_id + ".md")
+        if os.path.lexists(target):  # first: a session that has its digest is not "waiting", full folder or not
+            skipped["existing"] += 1
+            continue
         if total >= MAX_TOTAL_BYTES:
             # the folder is already full: parsing more transcripts could only produce digests that do not fit
             skipped["size_cap"] += _waiting(paths[position:], out)
             break
-        if os.path.lexists(target):
-            skipped["existing"] += 1
-            continue
         digest = _safe_digest(path, skipped, entrypoints)
         if digest is None:
             continue
