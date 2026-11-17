@@ -257,6 +257,12 @@ class ReleaseDocsTests(unittest.TestCase):
         headings = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", self.changelog, re.M)
         self.assertIn(self.plugin["version"], headings)
 
+    def test_the_readme_names_the_manifest_version_wherever_it_states_one(self):
+        for pattern in (r"\*\*Status: (\d+\.\d+\.\d+)", r"^(\d+\.\d+\.\d+) is an? (?:invite-only|public) beta"):
+            found = re.findall(pattern, self.readme, re.M)
+            self.assertTrue(found, pattern)
+            self.assertEqual(set(found), {self.plugin["version"]}, pattern)
+
     def test_the_marketplace_entry_carries_no_second_version(self):
         for entry in load_json(".claude-plugin", "marketplace.json")["plugins"]:
             self.assertNotIn("version", entry)
