@@ -36,8 +36,9 @@ SEPARATORS = "|;&\n"
 # The file or the module name (python3 -m memory_dream_run), in any case, and glued to a flag (-mmemory_dream) too.
 SCRIPT = re.compile(r"memory_[a-z_]+(?:\.py)?\b", re.I)
 DREAM, HYGIENE = re.compile(r"memory_dream(?:\.py)?\b", re.I), re.compile(r"memory_hygiene(?:\.py)?\b", re.I)
-# `python3 -` runs a script it reads from stdin, which can come from a pipe in another segment: its arguments must decide.
-STDIN_SCRIPT = re.compile(r"\bpython[0-9.]*(?:\s+-[A-Za-z0-9]+)*\s+-(?=\s|$)")
+# `python3 -` (also `-W ignore -`, `/dev/stdin`, a process substitution) runs a script that python reads from stdin, which can come from
+# a pipe in another segment: the arguments must decide. Any lone `-` or device file after `python` counts (a spurious ask at worst).
+STDIN_SCRIPT = re.compile(r"\bpython[0-9.]*\b(?:\s+\S+){0,8}?\s+(?:-|/dev/stdin|/dev/fd/\d+)(?=\s|$)")  # at most eight options: linear on any input
 CASE_WORD = re.compile(r"\bcase\b")  # a case arm has a ) that closes nothing, which the scan cannot tell from the end of a $( )
 CODE_MODES = ("top", "sub", "bt")  # the frames where quotes, comments and separators mean something
 WORD_BREAKS = " \t\n;|&("  # a # right after one of these starts a comment
@@ -55,6 +56,14 @@ def _splits(ch, text, i, prev):
     return not (ch == "|" and prev == ">")
 
 
+def _opens_ansi(text, i):
+    """True for the quote of $'...': an odd number of $ right before it (`$$'` is the process id and a plain quote)."""
+    dollars = 0
+    while dollars < i and text[i - 1 - dollars] == "$":
+        dollars += 1
+    return dollars % 2 == 1
+
+
 def _step(stack, text, i, prev):
     """Open or close the nesting frame that text[i] opens or closes, as bash does: a quote inside $( ) inside double quotes is a
     new quote, and a ) inside ${ } closes nothing. Frames: top, sub ($( ) and ( )), bt (backticks), brace (${ }), dq, sq, ansi ($'...')."""
@@ -70,7 +79,7 @@ def _step(stack, text, i, prev):
     elif mode == "dq" and ch == '"':
         stack.pop()
     elif mode != "dq" and ch in "'\"":
-        stack.append(("ansi" if prev == "$" else "sq") if ch == "'" else "dq")
+        stack.append(("ansi" if _opens_ansi(text, i) else "sq") if ch == "'" else "dq")
     elif ch == "(" and (prev == "$" or mode in CODE_MODES):
         stack.append("sub")
     elif ch == "{" and prev == "$":
