@@ -4,6 +4,7 @@ Safety contract: nothing in memory_*.py deletes files. The only move primitive i
 tests pin exactly which functions may call it (atomic writes, archiving, restore).
 """
 
+import argparse
 import hashlib
 import os
 import re
@@ -104,6 +105,17 @@ def expand(path):
 def printable(text):
     """Text safe to print: control, bidi and zero-width characters become '?'."""
     return CONTROL_CHARS.sub("?", str(text))
+
+
+def positive_int(text):
+    """argparse type for a count option: a whole number above zero (a negative one acts as a slice, zero as an empty run)."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a whole number above zero")
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be a whole number above zero")
+    return value
 
 
 def safe_stdio():

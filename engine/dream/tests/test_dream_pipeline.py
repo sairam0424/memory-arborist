@@ -333,8 +333,13 @@ class PipelineTests(Base):
         path = run.write_hunks_file(self.ops, result.hunks, now=T0 + 5)
         self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
         self.assertEqual([h["id"] for h in json.loads(th.read(path))], ["h1"])
-        with self.assertRaises(mc.HygieneError):
-            run.write_hunks_file(self.ops, result.hunks, now=T0 + 5)
+        # a second run finishing in the same second must not lose its paid results: it gets its own file name
+        second = run.write_hunks_file(self.ops, result.hunks, now=T0 + 5)
+        self.assertNotEqual(second, path)
+        self.assertEqual([h["id"] for h in json.loads(th.read(path))], ["h1"])
+        self.assertEqual(stat.S_IMODE(os.stat(second).st_mode), 0o600)
+        third = run.write_hunks_file(self.ops, result.hunks, now=T0 + 5)
+        self.assertEqual(len({path, second, third}), 3)
 
     def test_the_trace_keeps_every_proposal_with_the_verifiers_reason(self):
         runner = self.happy()

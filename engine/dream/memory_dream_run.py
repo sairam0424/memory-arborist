@@ -238,12 +238,19 @@ def _run_stages(ctx, texts, notes, index_text, by_session, max_notes, spend):
 
 
 def write_hunks_file(ops, hunks, now=None, suffix=".json"):
+    """Write the run's proposals under dream/inputs/. A file of the same second never makes the run lose its paid results: the
+    name gets -1, -2 ... instead (a model run costs money; a name clash must not throw its answers away)."""
     directory = os.path.join(ops, "dream", "inputs")
     mc.makedirs_private(directory)
-    path = os.path.join(directory, mc.utc_stamp(now) + suffix)
-    if os.path.lexists(path):
-        raise mc.HygieneError("a hunks file for this second already exists")
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    base, number = os.path.join(directory, mc.utc_stamp(now)), 0
+    path = base + suffix
+    while True:
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            break
+        except FileExistsError:
+            number += 1
+            path = "%s-%d%s" % (base, number, suffix)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(hunks, fh, indent=1, sort_keys=True)
     return path
@@ -366,8 +373,8 @@ def build_parser():
     cmd.add_argument("--model", default=DEFAULT_MODEL)
     cmd.add_argument("--per-lane-usd", type=mrr.positive_usd, default=0.6)
     cmd.add_argument("--total-max-usd", type=mrr.positive_usd, default=8.0)
-    cmd.add_argument("--workers", type=int, default=4)
-    cmd.add_argument("--max-notes", type=int, default=MAX_NOTES)
+    cmd.add_argument("--workers", type=mc.positive_int, default=4)
+    cmd.add_argument("--max-notes", type=mc.positive_int, default=MAX_NOTES)
     cmd.add_argument("--pinned-draft-ok", action="store_true")
     cmd.add_argument("--allow-secret-shapes", action="store_true", help="send the notes even though they hold block-tier secret shapes or entries that could not be scanned (default: refuse, exit 4)")
     cmd.add_argument("--now", type=float, default=None, help=argparse.SUPPRESS)

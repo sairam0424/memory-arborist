@@ -216,8 +216,10 @@ def execute(args, runner, questions, ops, tmp, plan, spend):
     """Run every (arm, repeat) of the plan; returns {arm: [records per run]} and the memory label of the live arm."""
     settings = mrr.Settings(args.model, args.per_q_usd)
     results, labels = {}, {}
-    for arm, repeat in plan:
+    for position, (arm, repeat) in enumerate(plan):
         memory, labels[arm] = prepare_arm(arm, args, ops, tmp)
+        if position == 0:
+            _check_before_spending(args)  # after the first arm's secret scan, before the first paid call
         for number in range(1, repeat + 1):
             records = run_arm(
                 questions,
@@ -296,8 +298,7 @@ def finish_baseline(args, questions, results, labels, spend, ops):
 
 
 def finish_staged(args, questions, results):
-    with open(mc.expand(args.baseline), encoding="utf-8") as fh:
-        baseline = json.load(fh)
+    baseline = read_baseline(args.baseline)
     runs = results["staged"]
     lost = regressions(baseline, [verdicts(run) for run in runs])
     print("REGRESSIONS n=%d ids=%s" % (len(lost), ",".join(lost) or "-"))
@@ -395,7 +396,7 @@ def build_parser():
     p.add_argument("--snapshot", default="latest", help="snapshot id for the live arm")
     p.add_argument(
         "--repeat",
-        type=int,
+        type=mc.positive_int,
         default=None,
         help="runs per arm (live 1, staged 2, baseline 2+1)",
     )
@@ -408,11 +409,11 @@ def build_parser():
     )
     p.add_argument(
         "--limit",
-        type=int,
+        type=mc.positive_int,
         default=None,
         help="only the first N questions (smoke test)",
     )
-    p.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
+    p.add_argument("--workers", type=mc.positive_int, default=DEFAULT_WORKERS)
     p.add_argument("--model", default=mrr.DEFAULT_MODEL)
     p.add_argument("--per-q-usd", type=mrr.positive_usd, default=0.25)
     p.add_argument("--total-max-usd", type=mrr.positive_usd, default=DEFAULT_TOTAL_USD)
@@ -426,6 +427,34 @@ def make_plan(args):
     if args.arm == "baseline":
         return [("live", args.repeat or 2), ("empty", 1)]
     return [(args.arm, args.repeat or (2 if args.arm == "staged" else 1))]
+
+
+def read_baseline(path):
+    """The baseline file as a dict, or a HygieneError that says what is wrong with it."""
+    shown = mc.printable(path)
+    try:
+        with open(mc.expand(path), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except OSError as err:
+        raise mc.HygieneError("cannot read --baseline %s: %s" % (shown, err.strerror))
+    except (ValueError, RecursionError):
+        raise mc.HygieneError("--baseline %s is not a baseline file (it is not valid JSON)" % shown)
+    runs = data.get("live_runs") if isinstance(data, dict) else None
+    if not (isinstance(runs, list) and runs and all(isinstance(run, dict) for run in runs)):
+        raise mc.HygieneError("--baseline %s is not a baseline file (it has no list of live runs)" % shown)
+    return data
+
+
+def _check_before_spending(args):
+    """Everything about the files this run reads or writes that can be checked for free, so that a typo in a path does not cost a run."""
+    arm, baseline, save = getattr(args, "arm", None), getattr(args, "baseline", None), getattr(args, "save", None)
+    if arm == "staged" and baseline:
+        read_baseline(baseline)
+    elif arm == "baseline" and save:
+        target = mc.expand(save)
+        folder = os.path.dirname(target)
+        if os.path.isdir(target) or not os.path.isdir(folder) or not os.access(folder, os.W_OK):
+            raise mc.HygieneError("cannot write --save %s: its folder must exist and be writable, and the path must not be a folder" % mc.printable(save))
 
 
 def judge(args, runner):

@@ -446,7 +446,7 @@ def build_parser():
     ground = sub.add_parser("ground", help="check hunks and stage the survivors")
     ground.add_argument("--hunks", required=True)
     ground.add_argument("--snapshot", default="latest")
-    ground.add_argument("--max-hunks", type=int, default=DEFAULT_MAX_HUNKS)
+    ground.add_argument("--max-hunks", type=mc.positive_int, default=DEFAULT_MAX_HUNKS)
     ground.add_argument(
         "--pinned-draft-ok",
         action="store_true",

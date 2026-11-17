@@ -165,5 +165,16 @@ class VerifierGateTests(Base):
         self.assertEqual(code, 0, out)
 
 
+class HunksFileTests(Base):
+    def test_the_trace_and_the_hunks_of_two_runs_in_one_second_all_survive(self):
+        names = []
+        for _ in range(3):
+            names.append(run.write_hunks_file(self.ops, [{"id": "h"}], now=1_700_000_000))
+            names.append(run.write_hunks_file(self.ops, {"proposed": []}, now=1_700_000_000, suffix=".trace.json"))
+        self.assertEqual(len(set(names)), 6)
+        self.assertTrue(all(os.path.isfile(n) for n in names))
+        self.assertEqual(sorted(os.path.basename(n) for n in names if n.endswith(".trace.json"))[0][-11:], ".trace.json")
+
+
 if __name__ == "__main__":
     unittest.main()
