@@ -1,0 +1,20 @@
+name: Question
+description: You are not sure how it works or what to do next (nothing is broken)
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is a small beta with one maintainer, so questions are answered as time allows. Read the README ("How safe is it, exactly?", "When something goes wrong") and `docs/PROVENANCE.md` first. **Please do not paste your notes or transcripts.** If something is broken, use the bug report form instead, because it asks for the doctor output.
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do, and what are you unsure about?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you read or tried already?
+    validations:
+      required: false

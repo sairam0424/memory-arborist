@@ -246,7 +246,7 @@ def check_claude(probe, environ):
                 "flags",
                 _no_answer(code, err, "`claude --help`", "`claude --help` failed (exit %d)" % code)
                 + ", so the flags could not be checked",
-                "",
+                "run `claude --help` yourself; if it works there, run the doctor again from the same shell",
             )
         ]
     missing = [flag for flag in REQUIRED_FLAGS if not _listed(flag, helptext)]

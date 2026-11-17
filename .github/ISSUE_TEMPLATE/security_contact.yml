@@ -7,7 +7,7 @@ body:
       value: |
         **This form is public.** Do not describe the problem here, and do not paste notes, transcripts, keys, file contents or personal data. If GitHub's private vulnerability reporting is available on this repository (Security tab, "Report a vulnerability"), use that instead; this form is only for when it is not.
 
-        Submitting it files an issue titled `security contact request`. The maintainer will answer by arranging a private channel, and the details go there.
+        Submitting it files an issue titled `security contact request`. If you are reporting a conduct problem instead (see `CODE_OF_CONDUCT.md`), type the word `conduct` in the last box. The maintainer will answer by arranging a private channel, and the details go there.
   - type: checkboxes
     id: no-details
     attributes:

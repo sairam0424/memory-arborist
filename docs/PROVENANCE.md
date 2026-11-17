@@ -2,7 +2,7 @@
 
 memory-arborist works on files and commands that belong to Claude Code. This page says, for each thing the code or the documentation states about Claude Code, where it comes from: a public documentation page, the output of `claude --help`, behaviour you can observe in your own sessions, or an assumption with no public source. Everything else in the repository is this project's own design.
 
-**Re-check.** On 2026-11-16 the 130 rows of section 1 were checked again against the live pages by six read-only agents: 120 still hold; the ten that did not were corrected below (a clause the cited page no longer carries, a source split in two, or a changed rule).
+**Re-check.** On 2026-11-16 the 130 rows of section 1 were checked again against the live pages by six read-only agents: 120 still hold; the ten that did not were corrected below (a clause the cited page no longer carries, a source split in two, or a changed rule). On 2026-11-17 a pre-release audit added three rows to section 1 (the two Claude Code version floors and the `#ref` install form, each checked against its public page that day), corrected the trademark row, removed a stale row from section 6 and added one to section 4. Sections 2 to 7 were last checked in full on 2026-11-10 and section 8 on 2026-11-15; they have not been re-checked since.
 
 **Method.** On 2026-11-10 the code, skill, hook file and docs were audited in ten lanes. Each lane's mapper agent could read only this repository, fetch public web pages and run `claude --help`; it listed every dependency and classified it. A second, independent verifier agent then tried to refute each classification. Afterwards every quote classed as a public-doc source was fetched again by a script and kept in section 1 only if it appears verbatim on the cited page (130 of 148 did; the rest are listed in section 6). A person has spot-checked the credential-shape sources in section 5; the rest of this page has not had a line-by-line human review. Pages change, so a source can drift: if a row is wrong, open an issue.
 
@@ -11,7 +11,7 @@ memory-arborist works on files and commands that belong to Claude Code. This pag
 Claude Code version used for the observations: 2.1.322 (macOS, Amazon Bedrock).
 
 
-## 1. Behaviour with a public source (130)
+## 1. Behaviour with a public source (133)
 
 Quote fidelity was checked mechanically against the cited page on 2026-11-10.
 
@@ -26,7 +26,7 @@ Quote fidelity was checked mechanically against the cited page on 2026-11-10.
 | `README.md` | `sonnet` is a valid Claude Code model alias for `--model`. Per the alias table it resolves to Sonnet 5.5 on the Anthropic API but Sonnet 4.5 on Amazon Bedrock. | https://code.claude.com/docs/en/model-config.md |
 | `README.md` | Default judge model `haiku` is a valid alias, but on Amazon Bedrock Haiku may not be enabled in an account or region. | https://code.claude.com/docs/en/amazon-bedrock.md |
 | `README.md` | Aliases resolve to different model versions per provider and change over time; to pin, use the full model name (provider-specific form) or the ANTHROPIC_DEFAULT_*_MODEL variables. | https://code.claude.com/docs/en/model-config.md |
-| `README.md` | Plain-text factual references to Claude and Claude Code (here: 'works with') are permitted, and the project avoids using the names in its own plugin name. | https://code.claude.com/docs/en/legal-and-compliance.md |
+| `README.md` | The legal-and-compliance page covers products that 'run Claude Code'; it does not speak about a descriptive 'works with' reference, so whether this project's plain-text references to Claude and Claude Code are permitted is NOT confirmed (a question for counsel). The project avoids using the names in its own plugin and marketplace names. | https://code.claude.com/docs/en/legal-and-compliance.md |
 | `SECURITY.md` | A plugin is fully trusted code: hooks and scripts the skill tells Claude to run execute with the user's permissions. | https://code.claude.com/docs/en/plugins/security.md |
 | `SECURITY.md` | 'Nothing in the memory directory is written except by promote --apply and restore --apply' is true of this plugin only. Claude Code itself writes auto-memory files during any normal session,… | https://code.claude.com/docs/en/memory.md |
 | `SECURITY.md` | A project-level Claude Code settings file can set environment variables, and a -p session loads project settings even in an untrusted folder, which is the basis of the advice not to run a session in such a repository. (The headless page names a project's hooks and `.mcp.json` servers, not its `env` block: the consequence for environment variables is this project's own inference.) | https://code.claude.com/docs/en/claude-directory (settings can set env vars) and https://code.claude.com/docs/en/headless (a -p session runs a project's hooks without a trust dialog) |
@@ -153,6 +153,9 @@ Quote fidelity was checked mechanically against the cited page on 2026-11-10.
 | File | What the code relies on | Help line |
 |---|---|---|
 | `README.md` | Install commands: `claude plugin marketplace add &lt;owner>/&lt;repo>` (GitHub shorthand) and `claude plugin install &lt;plugin>@&lt;marketplace>`. | `~/.local/bin/claude plugin marketplace --help`: `add [options] &lt;source>  Add a marketplace from a URL, path, or GitHub repo`; `~/.local/bin/claude plugin --help`: `install\|i [options] &lt;plugin>… |
+| `README.md` | A GitHub marketplace source can be pinned to a branch or tag with `#ref`: `owner/repo#ref`. | https://code.claude.com/docs/en/discover-plugins: "GitHub repository \| owner/repo. Add #ref to pin a branch or tag." |
+| `README.md`, `hooks.json` | The session-start and confirmation hooks use the exec form (`command` plus `args`), which needs Claude Code 2.1.139 or newer. | https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md, entry 2.1.139: "Added hook `args: string[]` field (exec form) that spawns the command directly without a shell" |
+| `README.md`, `memory_recall_run.py` | The model-backed half passes `--safe-mode`, which needs Claude Code 2.1.169 or newer. | https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md, entry 2.1.169: "Added `--safe-mode` flag (and `CLAUDE_CODE_SAFE_MODE`) to start Claude Code with all customizations ... disabled for troubleshooting" |
 | `README.md` | `--safe-mode` makes the child start without CLAUDE.md, skills, plugins, hooks, MCP servers and auto memory, while authentication, model selection, built-in tools and perm… | `~/.local/bin/claude --help`: `--safe-mode  Start with all customizations (CLAUDE.md, skills, installed plugins, hooks, MCP servers, custom commands and agents, output styles, workflows, custom themes… |
 | `SECURITY.md` | Lanes are `claude --safe-mode --tools ""` children; `--safe-mode` disables MCP servers, plugins and hooks for the child. Admin-managed policy hooks still run under --safe… | `~/.local/bin/claude --help` (--safe-mode: 'Admin-managed (policy) settings still apply.'); https://code.claude.com/docs/en/cli-reference.md |
 | `SKILL.md` | `claude --tools ""` starts a headless (-p) child with no built-in tools; `--tools` limits built-in tools only and does not affect MCP tools. | `~/.local/bin/claude --help`: `--tools &lt;tools...>  Specify the list of available tools from the built-in set. Use "" to disable all tools`. Also https://code.claude.com/docs/en/cli-reference.md and… |
@@ -209,12 +212,13 @@ Anyone can observe these in their own sessions. The code is written to fail clos
 | `memory_redact.py` | 'On real transcripts this costs about 5% of the text records': a measured drop rate of the cue-word rule on the author's own Claude Code transcripts. | A measurement on one operator's transcripts under ~/.claude/projects/&lt;project>/*.jsonl (location documented at https://code.claude.com/docs/en/claude-directory). Any user can reproduce the ratio on their own transcripts; the co… |
 | `memory_scan.py` | The key body after 'sk-ant-' is at least 40 characters of [A-Za-z0-9_-]. Anthropic publishes no key length or alphabet; the docs only show truncated examples like 'sk-ant-api03-R2D...igAA'. | Not documented. A user can observe the shape by counting the characters of their own key (never paste it anywhere) or by reading the truncated hints in the Console. The API reference shows only a partial hint: "partial_key_hint":… |
 
-## 4. Assumptions with no public source (19)
+## 4. Assumptions with no public source (20)
 
 These are this tool's own policy or reading, kept because they are conservative. The right-hand column says how the code treats each one.
 
 | File | Assumption | Handling |
 |---|---|---|
+| `memory_doctor.py` | The doctor's watch list names 41 environment variables a login route may need. Nineteen of them (the generic proxy, certificate and AWS file names, and seven Claude Code specific names: `ANTHROPIC_CUSTOM_HEADERS`, the three `CLAUDE_CODE_SKIP_*_AUTH` switches and the Bedrock, Vertex and Foundry base-URL variables) were added without a page being fetched for each name in the re-checks. | The doctor only reports that a name is set and never prints a value; a wrong name costs a missing or extra WARN, nothing more. |
 | `README.md` | '"Claude" and "Claude Code" are trademarks of Anthropic, PBC' is stated as fact. No page fetched names them as trademarks. | README and NOTICE reworded to "names used by Anthropic, PBC" with a link to its Trademark Guidelines. |
 | `memory_dream_lanes.py` | With --output-format json, stdout holds an element of type system/init whose `tools` array lists the child's tools, and an empty array proves the lane was tool-less (None or missing aborts the run). | Same as the row above. |
 | `memory_frontmatter.py` | Only the first 30 lines of a note are read by Claude Code for its frontmatter. | Own limit; docstring says so. |
@@ -269,13 +273,12 @@ Sources fetched on 2026-11-10. "Documented" means a vendor page or an RFC states
 | Generic assignments, entropy runs, PII shapes | none | this project's own heuristics | |
 
 
-## 6. Citations the quote check could not confirm (18)
+## 6. Citations the quote check could not confirm (17)
 
 The claim may still be right; the quoted sentence was not found on the cited page, or no page was cited.
 
 | File | Claim | Note |
 |---|---|---|
-| `README.md` | The README names the `claude` CLI as a requirement without a minimum Claude Code version, but the plugin relies on `--safe-mode` and on exec-form hook `args`. No fetched… | no page cited |
 | `README.md` | `MEMORY_ARBORIST_CLAUDE_HOME` defaults to `~/.claude`, but Claude Code moves every ~/.claude path when `CLAUDE_CONFIG_DIR` is set (now followed). | quote not found on the cited page |
 | `SKILL.md` | A session that invoked this skill carries the skill's text in its transcript, so the evidence builder can skip it by finding the MEMORY-ARBORIST-RUN marker in a session f… | no page cited |
 | `memory_compare.py` | Lines starting with 'modified:' are exempt from the lost-line comparison, implying a volatile 'modified:' key in notes. | no page cited |
@@ -316,5 +319,5 @@ These rows describe what the doctor, the confirmation hook, the skill setting an
 | `memory_digest.py`, `memory_evidence.py` | Transcript records carry an `entrypoint` field. On this machine 574 of the 600 newest transcripts say `sdk-py` (headless runs) and 26 say `cli`; no editor or desktop session was present, so what those write is not known here. | observed, 600 transcripts |
 | `memory_doctor.py` | The login-route and routing variables it watches. Seen on the cited page (its first part): `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_VERTEX_PROJECT_ID`, `ANTHROPIC_FOUNDRY_RESOURCE`, `ANTHROPIC_FOUNDRY_API_KEY`, `ANTHROPIC_MODEL`, the three `ANTHROPIC_DEFAULT_*_MODEL` variables and the deprecated `ANTHROPIC_SMALL_FAST_MODEL`; `CLAUDE_CODE_USE_VERTEX`, `NODE_EXTRA_CA_CERTS` and `CLAUDE_CONFIG_DIR` appear in its prose. Not confirmed from the part that was read, kept from general knowledge: `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_FOUNDRY`, `CLOUD_ML_REGION`, `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, `GOOGLE_APPLICATION_CREDENTIALS`. The watch list is not exhaustive. | https://code.claude.com/docs/en/env-vars |
 | `memory_confirm_gate.py`, `hooks.json` | Observed on 2026-11-15 with the plugin installed from this repository into a throwaway Claude config directory (Claude Code 2.1.325, Amazon Bedrock, `claude -p ... --allowedTools Bash --permission-mode default`, two calls of about 0.003 USD in all): a command containing `memory_dream.py promote RUN --apply` was not run and the session reported the hook's fixed reason, while a harmless `echo` under the same broad Bash allow ran. A headless session cannot answer a prompt, so the "ask" counted as a refusal; in an interactive session the same hook output shows the prompt. | observed |
-| `README.md` | `claude plugin details` reports the plugin's always-on cost as about 100 tokens per session and about 2.8k tokens each time the skill is invoked (Claude Code's own estimate), with one skill and two hooks. | observed, `claude plugin details memory-arborist` |
+| `README.md` | `claude plugin details` reports the plugin's always-on cost as about 100 tokens per session and about 3.6k tokens each time the skill is invoked (Claude Code's own estimate), with one skill and two hooks. It was about 2.8k on 0.1.0, before the skill grew. | observed again on 2026-11-17 (Claude Code 2.1.326, plugin 0.1.1), `claude plugin details memory-arborist` |
 | `memory_confirm_gate.py`, `hooks.json` | Observed on 2026-11-16 (Claude Code 2.1.325, Amazon Bedrock, the plugin read in place from this repository into a throwaway config directory, five calls of about 0.007 USD in all, `claude -p ... --allowedTools Bash`): a `memory_hygiene.py ... restore ... --apply` command, a `memory_recall.py ... --allow-secret-shapes` command, and a `memory_dream.py promote ... \\<newline> --apply` command written over two lines were each refused with the hook's fixed reason in default mode, and a plain `promote --apply` was refused too under `--permission-mode bypassPermissions`, while a harmless `echo` ran. A headless session cannot answer a prompt, so each ask counted as a refusal; an interactive session, auto mode and an interactive bypass session were not tested. | observed |

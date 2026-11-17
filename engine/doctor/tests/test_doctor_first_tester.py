@@ -202,6 +202,22 @@ class ProbeFailureWordsTests(WithClaudeOnPath):
         ].detail
         self.assertIn("gave no version (exit 3)", detail)
 
+    def test_every_warning_the_flag_check_can_raise_carries_a_fix_line(self):
+        # the skill promises that each WARN has a fix: line
+        def version_ok(code, text):
+            return lambda argv, env: (0, "2.1.325 (Claude Code)", "") if argv[1] == "--version" else (code, text, "")
+
+        for label, probe in (
+            ("help failed", version_ok(1, "")),
+            ("help timed out", version_ok(124, "")),
+            ("a flag missing", version_ok(0, "Options:\n  --print\n")),
+        ):
+            with self.subTest(label):
+                flags = by_name(doc.check_claude(probe, self.environ))["flags"]
+                self.assertEqual(flags.status, doc.WARN)
+                self.assertTrue(flags.fix.strip())
+                self.assertIn("fix:", doc.render([flags]))
+
     def test_a_help_probe_that_timed_out_is_a_warning_in_words(self):
         def probe(argv, env):
             return (

@@ -285,6 +285,34 @@ class ReleaseDocsTests(unittest.TestCase):
     def test_the_changelog_no_longer_says_the_hook_cannot_ask_in_bypass_mode(self):
         self.assertNotIn("cannot ask in bypass-permissions mode", self.changelog)
 
+    def test_no_document_counts_the_suites_by_a_number_that_has_drifted(self):
+        for rel in ("README.md", "CONTRIBUTING.md", ".github/PULL_REQUEST_TEMPLATE.md", "SUPPORT.md"):
+            self.assertNotRegex(th.read(os.path.join(ROOT, rel)), r"(?i)\b(?:all |the )?four suites\b", rel)
+
+    def test_the_readme_tests_block_lists_every_suite_the_ci_runs(self):
+        ci = th.read(os.path.join(ROOT, ".github", "workflows", "ci.yml"))
+        for pattern in re.findall(r"-p '([^']+)'", ci):
+            self.assertIn("-p '%s'" % pattern, self.readme, pattern)
+
+    def test_every_documented_doctor_command_keeps_bytecode_out_of_the_plugin_folder(self):
+        for rel in ("README.md", "SUPPORT.md", ".github/ISSUE_TEMPLATE/bug_report.yml", "skills/tend/SKILL.md"):
+            text = th.read(os.path.join(ROOT, rel))
+            for command in re.findall(r"python3 (-\w+(?: -\w+)*) [^`\n]*memory_doctor\.py", text):
+                self.assertIn("-B", command.split(), rel)
+
+    def test_no_document_names_a_model_the_live_runs_never_recorded(self):
+        for rel in ("README.md", "CHANGELOG.md"):
+            self.assertNotIn("Sonnet 5.5 through Bedrock", th.read(os.path.join(ROOT, rel)), rel)
+
+    def test_the_skill_covers_the_judge_exits_a_staged_check_can_end_with(self):
+        for word in ("UNVERIFIED", "FLOOR", "INCOMPLETE", "pre-promote snapshot"):
+            self.assertIn(word, self.skill, word)
+
+    def test_a_question_form_exists_and_support_names_it(self):
+        form = th.read(os.path.join(ROOT, ".github", "ISSUE_TEMPLATE", "question.yml"))
+        self.assertIn("name: Question", form)
+        self.assertIn('"Question" issue form', th.read(os.path.join(ROOT, "SUPPORT.md")))
+
     def test_the_security_contact_form_asks_for_no_details_and_blank_issues_stay_off(self):
         form = th.read(os.path.join(ROOT, ".github", "ISSUE_TEMPLATE", "security_contact.yml"))
         self.assertIn('title: "security contact request"', form)

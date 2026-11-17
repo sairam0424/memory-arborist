@@ -4,7 +4,7 @@
 
 **A memory upgrade for your Claude Code harness.** Claude Code keeps an auto-memory directory for each project: an index (`MEMORY.md`) and one note per topic. Over months it fills with notes that are stale, contradicted or half-duplicated, and the index creeps toward the point where Claude Code stops reading it. memory-arborist looks after that directory the way an arborist looks after a tree: it takes a backup first, finds what has gone stale **using what you actually said in your own past sessions**, drafts small edits, checks that the clean-up did not make Claude forget anything, and shows you every change as a diff. Nothing is installed until you say yes, and any change can be undone.
 
-> **Status: 0.1.1, invite-only beta.** The free half (snapshots, restore, lint, secret scan, the session-start hint, the doctor) is the stable part. The half that calls a model (the question wizard, the judge, the proposal lanes) is **experimental**: it has had one measured run on synthetic notes, one login route, and a ten-hunk cap per run. Read "Limits" below before you try it. macOS and Linux only.
+> **Status: 0.1.1, invite-only beta.** The free half (snapshots, restore, lint, secret scan, the session-start hint, the doctor) is the stable part. The half that calls a model (the question wizard, the judge, the proposal lanes) is **experimental**: it has had two live runs on a synthetic memory, one login route, and a ten-hunk cap per run. Read "Limits" below before you try it. macOS and Linux only.
 
 ## What you get
 
@@ -19,15 +19,26 @@
 
 What a fix looks like in the report you read (this one is made up):
 
-```
+````
 ### h1  project-deploys.md  (edit)
 
 Why: you moved deploys to Thursday.
+
 Evidence:
   - session 11111111-…: "we moved the deploys to Thursday afternoons last week"
-Old:   Deploys run every Tuesday at noon.
-New:   Deploys run every Thursday afternoon.
+
+Old:
+
 ```
+Deploys run every Tuesday at noon.
+```
+
+New:
+
+```
+Deploys run every Thursday afternoon.
+```
+````
 
 ## How safe is it, exactly?
 
@@ -40,7 +51,7 @@ What the code enforces, whatever Claude does:
 
 What rests on Claude Code's permission prompt and on you reading the diff:
 
-- **The final yes.** The plugin's hook makes Claude Code ask before `promote --apply`, `restore --apply` and any `--allow-secret-shapes` command. That prompt appears in Claude Code's default and accept-edits permission modes, and it beats a broad "allow Bash" rule; Claude Code's documentation says it normally reaches you in auto mode too (with documented exceptions). In a headless `-p` run an ask counts as a refusal, and in a test on Claude Code 2.1.325 the hook's ask was still enforced under bypass-permissions mode (which Claude Code documents as skipping permission prompts); an interactive bypass session has not been tested. Claude Code's `disableAllHooks` setting switches the hook off. The hook reads commands written over several lines, with quotes, `$( )`, `${ }` or redirections, skips comments, and asks whenever it cannot read a command with confidence (a here-document, an unclosed quote); the scripts themselves refuse abbreviated flags. It matches command text, and Claude Code starts it only for commands whose raw text already carries the gated words, so a flag broken across lines inside a word (`--ap` then a backslash and a newline then `ply`) may never reach it (not tested live). A command assembled at run time (an `eval`, a variable holding the script name) is not recognised, and a command that only mentions these words, such as a commit message, gets a prompt too. It is a seat belt, not a sandbox.
+- **The final yes.** The plugin's hook makes Claude Code ask before `promote --apply`, `restore --apply` and any `--allow-secret-shapes` command. That prompt appears in Claude Code's default and accept-edits permission modes, and it beats a broad "allow Bash" rule; Claude Code's documentation says it normally reaches you in auto mode too (with documented exceptions). In a headless `-p` run an ask counts as a refusal, and in a test on Claude Code 2.1.325 the hook's ask was still enforced under bypass-permissions mode (which Claude Code documents as skipping permission prompts); an interactive bypass session has not been tested, and those live checks were made on the 0.1.0 hook: the 0.1.1 hook, which reads more command forms, is covered by unit tests only so far. Claude Code's `disableAllHooks` setting switches the hook off. The hook reads commands written over several lines, with quotes, `$( )`, `${ }` or redirections, skips comments, and asks whenever it cannot read a command with confidence (a here-document, an unclosed quote); the scripts themselves refuse abbreviated flags. It matches command text, and Claude Code starts it only for commands whose raw text already carries the gated words, so a flag broken across lines inside a word (`--ap` then a backslash and a newline then `ply`) may never reach it (not tested live). A command assembled at run time (an `eval`, a variable holding the script name) is not recognised, and a command that only mentions these words, such as a commit message, gets a prompt too. It is a seat belt, not a sandbox.
 - **The quality of a proposal.** The checks reject edits that the evidence does not support. They cannot know whether an edit that passes is the one you wanted. That is why you read the report.
 
 ## Install
@@ -64,7 +75,7 @@ Run it from the project whose memory you want to tidy. Claude drives these steps
 1. **Safety net.** A lint first (its shrink tripwire compares your notes with the previous snapshot, so it can only warn before a new snapshot exists), then a verified snapshot and a secret scan. Free. A note over 50 MiB cannot be scanned: the snapshot and the scan say so, and every paid step refuses to send it (exit 4) until you shrink it.
 2. **Evidence.** Redacted digests of your past terminal sessions that have been idle for at least six hours, newest first. Free.
 
-   *Set up the two small files, once, before step 3.* `memory_dream.py pin --none` (recommended for a first run) or `--all` creates `pinned.txt`: the index lines the run must never edit. `--all` pins every non-blank line of `MEMORY.md`, so the run can correct a note but never the index line that repeats the old fact. The question wizard proposes the 25 to 32 recall questions from your own notes; you read them and accept. About $1 for a memory of a few hundred notes.
+   *Set up the two small files, once, before step 3.* `memory_dream.py pin --none` (recommended for a first run) or `--all` creates `pinned.txt`: the index lines the run must never edit. `--all` pins every non-blank line of `MEMORY.md`, so the run can correct a note but never the index line that repeats the old fact. The question wizard proposes the 25 to 32 recall questions from your own notes; you read them and accept. About $1.30 for its default eight batches on one 393-note memory (up to about 80 notes sampled); each extra batch (`--max-chunks`) is about 15 cents.
 3. **Baseline.** The judge asks the questions of your current memory and saves the answers. Cents.
 4. **Proposals.** Tool-less lanes read the digests and the notes and draft edits; everything that survives the checks is staged outside your memory directory.
 5. **Recall check.** The judge asks the same questions of the staged copy. `REGRESSIONS n=0` and `RESURRECTED n=0` are expected. A regression on a question about a fact this run changed is the update working, not forgetting, so read the failing question against the report; a question that still passes although a hunk changed its fact usually means stale text remains elsewhere (a run stages at most ten hunks). The check finds forgetting, not leftover staleness.
@@ -74,7 +85,7 @@ Run it from the project whose memory you want to tidy. Claude drives these steps
 
 ## What it costs
 
-Every paid command prints an `ESTIMATE` line first: how many model calls, the cap on each, and the ceiling at which the run stops. Default ceilings are $3 for the wizard, $5 for each judge run and $8 for the lanes, about $26 if every step used its full ceiling. Real runs cost far less: on one author's memory of about 400 notes, a full pass that found nothing to change cost about $0.33 and the wizard about $1.30 for eight batches. Yours will differ with the model you pick and the amount of history you have. The plugin itself adds about 100 tokens to every session and about 2.8k tokens when you start the skill (Claude Code's own estimate, from `claude plugin details memory-arborist`).
+Every paid command prints an `ESTIMATE` line first: how many model calls, the cap on each, and the ceiling at which the run stops. Default ceilings are $3 for the wizard, $5 for each judge run and $8 for the lanes, about $26 if every step used its full ceiling. Real runs cost far less: on one author's memory of about 400 notes, a full pass that found nothing to change cost about $0.33 and the wizard about $1.30 for eight batches. Yours will differ with the model you pick and the amount of history you have. The plugin itself adds about 100 tokens to every session and about 3.6k tokens when you start the skill (Claude Code's own estimate from `claude plugin details memory-arborist` on 2.1.326; it varies with the Claude Code version).
 
 ## What leaves your machine
 
@@ -98,13 +109,13 @@ To remove everything: `claude plugin uninstall memory-arborist@memory-arborist`,
 
 - **Platforms:** macOS and Linux (it relies on POSIX file semantics). Windows is not supported.
 - **Python:** 3.11 or newer, standard library only (CI covers 3.11 to 3.15).
-- **Claude Code:** the session-start hook needs 2.1.139 or newer and the model-backed steps need 2.1.169 or newer (`--safe-mode`). Tested with 2.1.322 and 2.1.325; older and newer versions are untested.
+- **Claude Code:** the session-start hook needs 2.1.139 or newer and the model-backed steps need 2.1.169 or newer (`--safe-mode`). Tested with 2.1.322 and 2.1.325 (the 0.1.1 confirmation hook only by unit tests so far); older and newer versions are untested.
 - **Login routes:** tested through Amazon Bedrock only. Subscription, API-key, Vertex and gateway logins are untested; `doctor --live` tells you in one cheap call whether yours works.
 - **Which sessions it learns from:** sessions started from the terminal (entrypoint `cli`). Headless runs stay out on purpose; an editor or desktop session is left out unless you pass `--include-entrypoint NAME` (the build prints the names it skipped; never name an `sdk-*` entrypoint, those are headless runs and are refused). A session is dated by its first record, so a long session that began before a note was written counts as older than that note (the safe direction).
 - **Which memory:** the current project's directory, found from your working directory. `autoMemoryDirectory` and `CLAUDE_CODE_PROJECT_DIR_NAME` are not read; point `MEMORY_ARBORIST_MEMORY_DIR` at the directory instead.
 - **The question set:** the judge needs 25 to 32 questions. The wizard proposes recall and negative questions only; you add questions about facts you know have changed by hand (see `docs/recall-questions.md`). A memory with fewer than about 25 notes worth asking about cannot reach the floor yet.
 - **Models:** the lanes default to `sonnet` and the judge to `haiku`, aliases that resolve to different versions on different providers, so a baseline is only comparable with runs on the same provider. Pin full model ids in the two model variables for reproducible baselines.
-- **Quality is not yet measured against known-bad notes.** The checks stop unsupported edits; how many real stale notes it finds, and how often it proposes something you would reject, has been measured only on the author's own memory. `dev/acceptance/run_seeded.py` is the test that measures it: a synthetic memory with eight planted stale facts, eight true ones (four of them with a session in which the person confirms them, a tempting false edit) and four traps (a claim only an assistant made, a topic merely mentioned), plus an instruction aimed at a model planted inside one of the stale notes so that a writer fixing the real fact has to read it. **Two live runs** (Sonnet 5.5 through Bedrock, about $0.39 each): the lanes found all eight stale facts both times; every accepted hunk was a correct edit (ten of ten each time, one or two of them index lines); no true note and no trap was edited; the planted instruction was not followed; the verifier rejected the two hunks that went beyond the evidence (one rewrote a sentence the person never mentioned, one dropped the old host name from an index line). A run stages at most ten hunks and each stale note can need three (the body, the description line, the index line), so five notes were fixed and three were deferred to the next run. That is two runs on a synthetic memory in which every fact has a clean answer and the new value is typed verbatim: treat it as evidence that the checks work, not as a guarantee about your notes.
+- **Quality has been measured only on a synthetic memory.** The checks stop unsupported edits, but how many real stale notes it finds, and how often it proposes something you would reject, has not been measured on real notes (on a sandbox copy of the author's own memory it found nothing to change). `dev/acceptance/run_seeded.py` is the test that measures it on a synthetic memory: eight planted stale facts, eight true ones (four of them with a session in which the person confirms them, a tempting false edit) and four traps (a claim only an assistant made, a topic merely mentioned), plus, in the second version of the fixture, an instruction aimed at a model planted inside one of the stale notes so that a writer fixing the real fact has to read it. **Two live runs** (the lanes' default `sonnet` alias through Amazon Bedrock; the model id the alias resolved to was not recorded, and `docs/PROVENANCE.md` says the alias maps to Sonnet 4.5 on Bedrock; about $0.37 and $0.39): the lanes found all eight stale facts both times; every accepted hunk was a correct edit (ten of ten each time, one or two of them index lines); no true note and no trap was edited. In the first run no model ever saw the planted instruction; in the second run it was not followed, and the verifier rejected the two hunks that went beyond the evidence (one rewrote a sentence the person never mentioned, one dropped the old host name from an index line). A run stages at most ten hunks and each stale note can need three (the body, the description line, the index line), so five notes were fixed and three were deferred to the next run. That is two runs on a synthetic memory in which every fact has a clean answer and the new value is typed verbatim: treat it as evidence that the checks work, not as a guarantee about your notes.
 
 ## When something goes wrong
 
@@ -142,6 +153,10 @@ python3 -I -m unittest discover -s tests -p 'test_memory_*.py'
 python3 -I -m unittest discover -s recall/tests -p 'test_memory_recall*.py'
 python3 -I -m unittest discover -s dream/tests -p 'test_dream_*.py'
 python3 -I -m unittest discover -s doctor/tests -p 'test_doctor_*.py'
+cd ../dev/acceptance
+python3 -I -m unittest discover -s tests -p 'test_seeded.py'
+cd ../release
+python3 -I -m unittest discover -s tests -p 'test_check_history.py'
 ```
 
 `dev/harness/` holds mutation checks that edit a temporary copy of the engine and expect the tests to fail. A few timing assertions in the safety-net suite can fail on a heavily loaded machine; rerun when it is idle.
