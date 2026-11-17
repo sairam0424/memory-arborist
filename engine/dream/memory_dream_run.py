@@ -178,7 +178,7 @@ def _verifier_stage(hunks, notes, digests_by_session, ctx):
         prompt = lanes.verifier_prompt(
             hunk, _evidence_lines(hunk, digests_by_session), notes.get(hunk["file"], ""), ctx.get("note_dates", {}).get(hunk["file"])
         )
-        answer = lanes.run_lane(prompt, *ctx["lane"])
+        answer = lanes.run_lane(prompt, *ctx["lane"], unambiguous=True)
         if not isinstance(answer, dict) or answer.get("verdict") not in ("keep", "reject"):
             if isinstance(answer, dict):
                 print("LANE-ERROR the verifier's answer held no keep-or-reject verdict")

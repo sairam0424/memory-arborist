@@ -78,26 +78,49 @@ def subprocess_runner(argv, cwd, env, stdin_text):
     return proc.returncode, mrr.decode_output(proc.stdout), mrr.decode_output(proc.stderr)
 
 
-def extract_json(text):
-    """The JSON a reply holds: the whole reply if it parses, else the LAST JSON value in the chatter (a model that quotes
-    data before answering must not let the quoted data win). Bounded work; None when nothing parses."""
-    body = text.strip()[:MAX_REPLY_CHARS]
-    fenced = re.match(r"^```(?:json)?\s*(.*?)\s*```$", body, re.S)
-    body = fenced.group(1) if fenced else body
+def _unfence(body):
+    """The reply without a surrounding ``` fence (and its optional json tag). Plain string checks: a backtracking pattern here
+    was cubic, and a reply with an unclosed fence and a long run of blank lines froze the parent."""
+    if len(body) < 6 or not (body.startswith("```") and body.endswith("```")):
+        return body
+    inner = body[3:-3]
+    if inner.startswith("json") and not inner[4:5].isalnum():
+        inner = inner[4:]
+    return inner.strip()
+
+
+def _json_values(body):
+    """Every JSON value in `body`, left to right. Bounded work: at most MAX_OPENER_TRIES failed starts."""
+    decoder, opener, found, index, tries = json.JSONDecoder(), re.compile(r"[{\[]"), [], 0, 0
+    while tries < MAX_OPENER_TRIES:
+        match = opener.search(body, index)
+        if not match:
+            break
+        try:
+            value, index = decoder.raw_decode(body, match.start())
+        except (ValueError, RecursionError):
+            index, tries = match.start() + 1, tries + 1
+        else:
+            found.append(value)
+    return found
+
+
+def extract_json(text, unambiguous=False):
+    """The JSON a reply holds: the whole reply if it parses, else the LAST JSON value in the chatter (a model that quotes data
+    before answering must not let the quoted data win). With `unambiguous` (the verifier, the only model gate), a reply that holds
+    two different JSON objects is unusable, because a quoted line from an untrusted note could otherwise turn a rejection into a
+    keep. Bounded work; None when nothing usable parses."""
+    body = _unfence(text.strip()[:MAX_REPLY_CHARS])
     try:
         return json.loads(body)
     except (ValueError, RecursionError):
         pass
-    decoder, last, index, tries = json.JSONDecoder(), None, 0, 0
-    while tries < MAX_OPENER_TRIES:
-        found = re.compile(r"[{\[]").search(body, index)
-        if not found:
-            break
-        try:
-            last, index = decoder.raw_decode(body, found.start())
-        except (ValueError, RecursionError):
-            index, tries = found.start() + 1, tries + 1
-    return last
+    values = _json_values(body)
+    if not unambiguous:
+        return values[-1] if values else None
+    objects = [v for v in values if isinstance(v, dict)]
+    distinct = [o for i, o in enumerate(objects) if o not in objects[:i]]
+    return distinct[0] if len(distinct) == 1 else None
 
 
 def fence_token(*texts):
@@ -214,12 +237,11 @@ def ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None):
     return out
 
 
-def run_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None):
+def run_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None, unambiguous=False):
     """The JSON a lane returned, or None when the call failed or the answer held no JSON."""
     try:
-        answer = extract_json(
-            ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd).text
-        )
+        reply = ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd)
+        answer = extract_json(reply.text, unambiguous)
     except mrr.AskError as err:
         print("LANE-ERROR " + mc.clean_line(err, 100))
         return None
