@@ -7,6 +7,7 @@ import os
 import stat
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -48,6 +49,24 @@ class SavePreflightTests(TempRoot):
             "1",
         ]
         return run_main(argv + ["--arm", "baseline", "--save", save], runner)
+
+    def baseline_run_without_save(self, runner):
+        argv = ["--questions", self.qfile, "--dir", self.mem, "--ops-root", self.root, "--no-log", "--workers", "1", "--arm", "baseline"]
+        return run_main(argv, runner)
+
+    def hold_a_reader_on(self, fifo):
+        """A thread that opens the named pipe for reading (which waits for a writer), and a cleanup that lets it go."""
+        reader = threading.Thread(target=lambda: open(fifo, "rb").read(), daemon=True)
+        reader.start()
+
+        def release():
+            try:
+                os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))  # succeeds only while the reader is waiting
+            except OSError:
+                pass
+            reader.join(5)
+
+        self.addCleanup(release)
 
     def refused(self, path):
         runner = MemoryReadingRunner()
@@ -102,9 +121,7 @@ class SavePreflightTests(TempRoot):
         self.assertEqual(code, 0, out + err)
         self.assertGreater(os.path.getsize(real), 2)
 
-    def test_a_write_that_fails_after_the_paid_calls_is_a_message_that_says_what_was_lost(
-        self,
-    ):
+    def test_a_write_that_fails_after_the_paid_calls_is_a_message_that_says_what_was_lost(self):
         save = os.path.join(self.scratch, "late.json")
         real_open = os.open
 
@@ -119,7 +136,23 @@ class SavePreflightTests(TempRoot):
         self.assertNotIn("Traceback", out + err)
         self.assertIn("could not be saved", err)
         self.assertIn("No space left on device", err)
+        self.assertIn("writes in place", err)
         self.assertFalse(os.path.exists(save))
+
+    def test_a_named_pipe_or_another_file_that_is_not_a_regular_file_is_refused(self):
+        fifo = os.path.join(self.scratch, "fifo.json")
+        os.mkfifo(fifo)
+        self.hold_a_reader_on(fifo)  # so that a judge that does open it fails the test instead of waiting for ever
+        self.refused(fifo)  # opening it for writing would wait for a reader for ever, after the paid calls
+        link = os.path.join(self.scratch, "fifo-link.json")
+        os.symlink(fifo, link)
+        self.refused(link)
+
+    def test_an_empty_save_path_is_refused_and_a_missing_one_is_noted_before_the_first_paid_call(self):
+        self.refused("")
+        code, out, err = self.baseline_run_without_save(MemoryReadingRunner())
+        self.assertEqual(code, 0, out + err)
+        self.assertLess(out.index("NOTE: no --save"), out.index("COST"), "the note must come before the paid calls are summed up")
 
 
 if __name__ == "__main__":

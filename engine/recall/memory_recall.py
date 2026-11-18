@@ -302,7 +302,8 @@ def _save_baseline(save, data):
             json.dump(data, fh, indent=1, sort_keys=True)
     except OSError as err:  # the preflight catches the usual causes; a full disk or a change of mind in between ends here
         raise mc.HygieneError(
-            "the baseline could not be saved to %s (%s); this run's results were not kept and it cost %.4f USD: fix that and run it again"
+            "the baseline could not be saved to %s (%s); this run's results were not kept and it cost %.4f USD, and a file that was already "
+            "there may be cut short (the judge never replaces or renames files, so it writes in place): fix that and run it again"
             % (mc.printable(save), mc.clean_line(err.strerror or type(err).__name__, 80), data["total_usd"])
         )
     print("BASELINE saved " + target)
@@ -461,6 +462,8 @@ def _save_problem(target):
     real = os.path.realpath(target)  # the write follows a link, so judge the place it leads to
     if os.path.isdir(real):
         return "the path is a folder"
+    if os.path.exists(real) and not os.path.isfile(real):  # a named pipe waits for a reader for ever, after the paid calls
+        return "the path is not a regular file"
     if os.path.lexists(real):
         return None if os.access(real, os.W_OK) else "the file cannot be written (or a link on the way cannot be followed)"
     folder = os.path.dirname(real)
@@ -472,7 +475,9 @@ def _check_before_spending(args):
     arm, baseline, save = getattr(args, "arm", None), getattr(args, "baseline", None), getattr(args, "save", None)
     if arm == "staged" and baseline:
         read_baseline(baseline)
-    elif arm == "baseline" and save:
+    elif arm == "baseline" and save is None:
+        print("NOTE: no --save FILE: the results of this baseline run are printed but not kept, and the staged check needs a saved baseline")
+    elif arm == "baseline":  # an empty string counts too: "--save $OUT" with OUT unset must not pass as "no file"
         problem = _save_problem(mc.expand(save))
         if problem:
             raise mc.HygieneError("cannot write --save %s: %s" % (mc.printable(save), problem))

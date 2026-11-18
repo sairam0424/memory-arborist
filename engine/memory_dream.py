@@ -315,9 +315,11 @@ def _run_dir_of(ops, run_id):
 
 
 def _say(line):
-    """Print `line`; with the output stream gone (a closed pipe) it goes to the error stream, so the way back is never lost."""
+    """Print `line` and flush it; with the output stream gone (a closed pipe) it goes to the error stream, so the way back is never lost.
+    The flush is what makes the failure show here: stdout to a pipe or a file is block-buffered, and the error would surface only at exit."""
     try:
         print(line)
+        sys.stdout.flush()
     except OSError:
         print(line, file=sys.stderr)
 
@@ -387,6 +389,8 @@ def _apply_promotion(args, memory, ops, run_dir, snap, touched):
     prepared = _prepare_install(memory, ops, run_dir, touched, manifest)
     pre = sn.take_snapshot(memory, ops, now=args.now)
     with reg.ops_lock(ops):  # both records are written before the lock is released: a promote that lost the race sees the marker
+        for rel in touched:  # only now: a promote refused for any reason before this point must not claim it is replacing anything
+            _say("replacing %s (the old copy is archived first)" % mc.printable(rel))
         try:
             done, archive_dir = _install(
                 memory, ops, run_dir, prepared, manifest, args.now
@@ -418,8 +422,6 @@ def cmd_promote(args):
         raise mc.HygieneError(
             "--expect must equal the DIGEST a dry run printed for exactly this content"
         )
-    for rel in touched:  # only now: a refused promote must not claim it is replacing anything
-        print("replacing %s (the old copy is archived first)" % mc.printable(rel))
     _apply_promotion(args, memory, ops, run_dir, snap, touched)
     return EXIT_OK
 

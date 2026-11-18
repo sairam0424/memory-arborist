@@ -10,6 +10,7 @@ import errno
 import io
 import json
 import os
+import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -204,6 +205,34 @@ class RaceAndPipeTests(PromoteBase):
         self.assertEqual(json.loads(th.read(os.path.join(run, dr.MARKER)))["status"], "promoted")
         self.assertIn("PROMOTED 2 notes", err)  # the line goes to the error stream when the output stream is gone
         self.assertNotIn("Traceback", out + err)
+
+
+class RealStreamTests(PromoteBase):
+    def test_a_real_closed_pipe_still_shows_the_way_back_on_the_error_stream_and_writes_the_marker(self):
+        # no mock: the documented form (python3 -B -I) with stdout on a pipe nobody reads. The output is block-buffered there, so the
+        # failure only shows at a flush, and the line has to be flushed inside the fallback for the fallback to fire
+        run = self.two_note_run()
+        digest = self.digest_of(run)
+        reader, writer = os.pipe()
+        os.close(reader)
+        proc = subprocess.run(
+            [sys.executable, "-B", "-I", os.path.join(th.SCRIPTS, "memory_dream.py"), "--dir", self.mem, "--ops-root", self.root,
+             "promote", os.path.basename(run), "--apply", "--expect", digest],
+            stdout=writer, stderr=subprocess.PIPE, text=True, timeout=120,
+        )
+        os.close(writer)
+        self.assertEqual(json.loads(th.read(os.path.join(run, dr.MARKER)))["status"], "promoted")
+        self.assertIn("PROMOTED 2 notes", proc.stderr)
+
+    def test_a_promote_refused_because_the_lock_is_held_never_prints_replacing(self):
+        run = self.two_note_run()
+        digest = self.digest_of(run)
+        with reg.ops_lock(self.ops):
+            code, out, err = self.cli("promote", os.path.basename(run), "--apply", "--expect", digest)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("holds the lock", err)
+        self.assertNotIn("replacing", out)
+        self.assertFalse(os.path.exists(os.path.join(run, dr.MARKER)))
 
 
 class contextlib_exit_stack:  # noqa: N801 - a tiny with-statement over several mock patches
