@@ -10,7 +10,7 @@ the object line; --branch NAME=TAG points a branch at one of them.
 The destination is a brand new repository that holds only what the new history reaches: no old commit, tree or blob, no
 unreachable object, no tag or branch nobody asked for (a clone of the old repository would still carry them, so never publish
 from it). It is built in a hidden folder next to the destination and moved into place only after it verified, so a failure
-leaves no half-built destination. The source repository is only read, with replacement refs and graft files switched off and
+leaves no half-built destination. The source repository is only read (the destination may not lie inside it, and --ref must name one of its branches), with replacement refs and graft files switched off and
 the GIT_DIR family of environment variables removed. History must be linear: a merge commit, a commit with any header besides
 tree, parent, author and committer (a signature, an encoding, a tool's extra header) and a signed tag or a tag on a dropped
 commit are refused, because replaying them would silently change them.
@@ -24,6 +24,7 @@ did not verify (nothing was written to the destination); 2 usage or git error.
 import argparse
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -48,6 +49,9 @@ GIT_SCRUB = (
     "GIT_PREFIX",
     "GIT_SHALLOW_FILE",
     "GIT_REPLACE_REF_BASE",
+    "GIT_TEMPLATE_DIR",  # would copy files and hooks into a new repository
+    "GIT_CONFIG_COUNT",  # config handed over through the environment (hooks path, reflogs, ...)
+    "GIT_CONFIG_PARAMETERS",
 )
 
 
@@ -57,13 +61,21 @@ class UsageError(Exception):
 
 def git_env():
     """The environment for every git call: this repository's real objects, and nothing inherited that changes that."""
-    env = {key: value for key, value in os.environ.items() if key not in GIT_SCRUB}
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in GIT_SCRUB and not key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+    }
     env.update(
         GIT_NO_REPLACE_OBJECTS="1",  # a replace ref would show the replacement, not the original commit
         GIT_GRAFT_FILE=os.devnull,
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_CONFIG_NOSYSTEM="1",
         GIT_NO_LAZY_FETCH="1",
+        GIT_COMMITTER_NAME="rewrite_history",  # the reflog of a plumbing call names the committer: never the operator
+        GIT_COMMITTER_EMAIL="rewrite_history@localhost.invalid",
+        GIT_AUTHOR_NAME="rewrite_history",
+        GIT_AUTHOR_EMAIL="rewrite_history@localhost.invalid",
     )
     return env
 
@@ -112,18 +124,36 @@ def read_commit(repo, sha):
     return Commit(sha, tree, parents, author, committer, message, raw)
 
 
-def linear_history(source, ref):
-    """Commit ids oldest first; a merge commit is refused."""
-    rows = git(source, "rev-list", "--reverse", "--parents", ref).decode().splitlines()
-    shas = []
-    for row in rows:
-        fields = row.split()
+MIN_ROOT_CHARS = 7
+
+
+def ref_exists(source, full):
+    """True when the ref exists under exactly this name (on a case-insensitive disk git also finds `V1` for `v1`)."""
+    return full in git(source, "for-each-ref", "--format=%(refname)", full).decode().split()
+
+
+def resolve_branch(source, ref):
+    """The commit a branch of the source points at. Only a branch name is accepted: git would read a bare word as a tag of that name, a
+    range, an option or a file, and rev-list would then walk another history without a word."""
+    if not ref or ref.startswith("-") or not valid_ref("heads", ref) or not ref_exists(source, "refs/heads/" + ref):
+        raise UsageError("--ref must be the name of a branch of the source, spelled exactly: %s" % ref)
+    return git(source, "rev-parse", "--verify", "--quiet", "--end-of-options", "refs/heads/%s^{commit}" % ref).decode().strip()
+
+
+def kept_history(source, tip, root):
+    """(commit ids from the new root to the tip, oldest first; the length of the branch's first-parent chain). Only the commits from the
+    root to the tip are replayed, so only a merge among THEM is refused: what lies before the root is dropped whole, merges included."""
+    if len(root) < MIN_ROOT_CHARS:
+        raise UsageError("--root needs at least %d characters of the commit id" % MIN_ROOT_CHARS)
+    rows = [row.split() for row in git(source, "rev-list", "--first-parent", "--parents", "--end-of-options", tip, "--").decode().splitlines()]
+    hits = [i for i, fields in enumerate(rows) if fields[0].startswith(root)]
+    if len(hits) != 1:
+        raise UsageError("the root commit is not in the first-parent history of the branch (or the prefix is ambiguous)")
+    span = rows[: hits[0] + 1]  # newest first, ending at the root
+    for fields in span[:-1]:
         if len(fields) > 2:
-            raise UsageError(
-                "commit %s is a merge: a linear replay would flatten it" % fields[0][:7]
-            )
-        shas.append(fields[0])
-    return shas
+            raise UsageError("commit %s is a merge: a linear replay would flatten it" % fields[0][:7])
+    return [fields[0] for fields in reversed(span)], len(rows)
 
 
 def without_parents(raw):
@@ -175,6 +205,8 @@ def replay(scratch, commits):
 def read_tag(source, name):
     """(target commit id, raw tag object) of an annotated tag that points at a commit and carries no signature."""
     ref = "refs/tags/" + name
+    if not ref_exists(source, ref):
+        raise UsageError("tag %s does not exist under exactly that name" % name)
     if git(source, "cat-file", "-t", ref).strip() != b"tag":
         raise UsageError("tag %s is not an annotated tag" % name)
     raw = git(source, "cat-file", "tag", ref)
@@ -247,15 +279,65 @@ def check_refs(source, kept, tags, branches):
             raise UsageError(
                 "--branch needs NAME=TAG where TAG is one of the --tag names: %s" % spec
             )
-        if name == "main" or name in names or not valid_ref("heads", name):
+        if name.lower() == "main" or name.lower() in names or not valid_ref("heads", name):
             raise UsageError(
                 "--branch needs a valid branch name that is not main and is not used twice: %s"
                 % spec
             )
-        names.append(name)
+        names.append(name.lower())
+
+
+def check_outside_source(source, dest):
+    """The destination may not lie inside the source or its git folder: the build would write into the repository it is meant to leave
+    alone (and the staging folder would be part of it)."""
+    where = os.path.realpath(dest)
+    for root in {os.path.realpath(source), os.path.realpath(git(source, "rev-parse", "--absolute-git-dir").decode().strip())}:
+        if where == root or where.startswith(root + os.sep):
+            raise UsageError("the destination is inside the source (%s): choose a folder outside it" % root)
+
+
+def make_parents(path):
+    """Create the missing folders above a destination; returns the ones this call created, outermost first."""
+    missing, probe = [], path
+    while not os.path.isdir(probe) and probe != os.path.dirname(probe):
+        missing.append(probe)
+        probe = os.path.dirname(probe)
+    os.makedirs(path, exist_ok=True)
+    return list(reversed(missing))
+
+
+def remove_created(folders):
+    for folder in reversed(folders):
+        try:
+            os.rmdir(folder)  # only a folder this run made and that is still empty
+        except OSError:
+            pass
+
+
+class Interrupted(Exception):
+    pass
+
+
+def _interrupt(signum, _frame):
+    raise Interrupted(signal.Signals(signum).name)
+
+
+def scrub_build_leftovers(staging):
+    """What the build leaves in the new repository's folder that belongs to no commit: reflogs (they name a committer and a time),
+    ORIG_HEAD and an empty ref folder."""
+    gitdir = os.path.join(staging, ".git")
+    shutil.rmtree(os.path.join(gitdir, "logs"), ignore_errors=True)
+    if os.path.lexists(os.path.join(gitdir, "ORIG_HEAD")):
+        os.remove(os.path.join(gitdir, "ORIG_HEAD"))
+    try:
+        os.rmdir(os.path.join(gitdir, "refs", "rewritten"))
+    except OSError:
+        pass
 
 
 def check_destination(dest):
+    if os.path.islink(dest):
+        raise UsageError("the destination is a symbolic link: give the real folder")
     if os.path.exists(dest) and (not os.path.isdir(dest) or os.listdir(dest)):
         raise UsageError("the destination exists and is not empty: %s" % dest)
 
@@ -271,7 +353,7 @@ def object_format(source):
 
 def publish(scratch, staging, tip, fmt):
     """Fetch only what `tip` reaches (and no tag) into a new repository and check it out as main."""
-    git(staging, "init", "-q", "-b", "main", "--object-format=" + fmt)
+    git(staging, "init", "-q", "-b", "main", "--template=", "--object-format=" + fmt)
     git(scratch, "update-ref", "refs/heads/rewritten", tip)
     git(
         staging,
@@ -357,6 +439,7 @@ def build(args, keep, commits, tags, fmt, staging):
     made_branches = create_branches(staging, args.branch, made_tags)
     verify(staging, commits, mapping)
     verify_contents(staging, args.source, made_tags, made_branches, mapping)
+    scrub_build_leftovers(staging)
     return mapping, made_tags, made_branches
 
 
@@ -367,25 +450,17 @@ def run(args):
     )  # git runs from a temporary folder
     if not os.path.isdir(args.source):
         raise UsageError("not a directory: %s" % args.source)
+    check_outside_source(args.source, args.dest)
     check_destination(args.dest)
-    shas = linear_history(args.source, args.ref)
-    full = (
-        [s for s in shas if s.startswith(args.root)]
-        if len(args.root) < 40
-        else [s for s in shas if s == args.root]
-    )
-    if len(full) != 1:
-        raise UsageError(
-            "the root commit is not in the history of %s (or the prefix is ambiguous)"
-            % args.ref
-        )
-    keep = shas[shas.index(full[0]) :]
+    keep, chain_length = kept_history(args.source, resolve_branch(args.source, args.ref), args.root)
+    dropped = chain_length - len(keep)
     tags = list(args.tag or ())
     check_refs(args.source, set(keep), tags, args.branch or ())
     commits = [read_commit(args.source, sha) for sha in keep]
-    os.makedirs(os.path.dirname(args.dest), exist_ok=True)
-    staging, moved = tempfile.mkdtemp(prefix=".rewrite-", dir=os.path.dirname(args.dest)), False
+    created = make_parents(os.path.dirname(args.dest))
+    staging, moved = None, False
     try:
+        staging = tempfile.mkdtemp(prefix=".rewrite-", dir=os.path.dirname(args.dest))
         mapping, made_tags, made_branches = build(args, keep, commits, tags, object_format(args.source), staging)
         moved = move_into_place(staging, args.dest)
     except RuntimeError as err:
@@ -393,16 +468,24 @@ def run(args):
         return 1
     finally:
         if not moved:
-            shutil.rmtree(staging, ignore_errors=True)  # a folder this run created, never one that was moved into place
-    print(
-        "REWRITE ok commits=%d dropped=%d root=%s tags=%s branches=%s"
-        % (len(keep), len(shas) - len(keep), mapping[keep[0]][:7], ",".join(made_tags) or "-", ",".join(made_branches) or "-")
-    )
+            if staging:
+                shutil.rmtree(staging, ignore_errors=True)  # a folder this run created, never one that was moved into place
+            remove_created(created)
+    try:
+        print(
+            "REWRITE ok commits=%d dropped=%d root=%s tags=%s branches=%s"
+            % (len(keep), dropped, mapping[keep[0]][:7], ",".join(made_tags) or "-", ",".join(made_branches) or "-")
+        )
+    except OSError:  # a closed output pipe does not undo a finished, verified run
+        pass
     return 0
 
 
 def move_into_place(staging, dest):
     """Rename the verified staging folder to the destination (an empty destination folder is replaced)."""
+    mask = os.umask(0)
+    os.umask(mask)
+    os.chmod(staging, 0o777 & ~mask)  # mkdtemp made it private; the destination gets the mode a new folder would have
     try:
         os.rename(staging, dest)  # onto a missing destination, or onto an empty folder, which a rename replaces
     except OSError as err:
@@ -445,11 +528,26 @@ def main(argv=None):
         help="NAME=TAG: a branch pointing at a recreated tag (repeatable)",
     )
     args = parser.parse_args(argv)
+    saved = {}
+    for name in ("SIGTERM", "SIGHUP", "SIGINT"):
+        try:
+            saved[name] = signal.signal(getattr(signal, name), _interrupt)
+        except (ValueError, OSError):  # not the main thread
+            pass
     try:
         return run(args)
     except UsageError as err:
         print("ERROR: %s" % err, file=sys.stderr)
         return 2
+    except Interrupted as err:
+        print("INTERRUPTED (%s): nothing was written to the destination" % err, file=sys.stderr)
+        return 2
+    except (OSError, MemoryError, RecursionError) as err:
+        print("ERROR: unexpected %s: %s" % (type(err).__name__, getattr(err, "strerror", None) or "the run did not complete"), file=sys.stderr)
+        return 2
+    finally:
+        for name, handler in saved.items():
+            signal.signal(getattr(signal, name), handler)
 
 
 if __name__ == "__main__":

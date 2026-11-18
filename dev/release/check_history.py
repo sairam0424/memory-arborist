@@ -16,6 +16,10 @@ pass, but the same entry in a file, a path, a message body or a ref name is stil
 
     python3 -I check_history.py --repo . --words .release-guard-words [--allow-identity N ...]
 
+Not scanned, by design: objects no ref reaches (an amended-away commit still sits in the object store of the repository you point it
+at; a plain `git clone <path>` hardlinks them, so publish only from a repository built by rewrite_history.py or cloned with
+--no-local), reflogs, and the inside of compressed or archived blobs (gz, zip, docx). Memory use is about eleven times the largest blob.
+
 Exit codes: 0 clean; 1 at least one hit; 2 usage or git error. A check that cannot be complete is an error, never a clean pass: a
 missing or empty list, a list in which every entry is too short, a shallow or partial clone, a repository without commits, an
 object that is missing. Entries shorter than MIN_LENGTH characters once normalised cannot be checked reliably and are skipped
@@ -27,11 +31,17 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 from collections import defaultdict
 
 MIN_LENGTH = 4
 SHORT_ID = 7
 OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
+# Letters that render as nothing (Hangul fillers): written between the parts of a word they hide it from a plain comparison.
+BLANK_LETTERS = frozenset(map(ord, "\u115f\u1160\u3164\uffa0"))
+TRAILER_BLOCK_LINE = re.compile(r"[A-Za-z][A-Za-z-]*: \S.*")
+IDENTITY_TRAILER = re.compile(r"(?:Signed-off-by|Co-authored-by): [^<>\n]+ <[^<>\s]+@[^<>\s]+>")
+OBJECT_TYPES = ("commit", "tree", "blob", "tag")
 CATEGORIES = ("content", "path", "message", "tag", "metadata", "ref")
 # Variables that point git at another repository or another set of objects; a git hook or `rebase --exec` exports some of them.
 GIT_SCRUB = (
@@ -45,6 +55,9 @@ GIT_SCRUB = (
     "GIT_PREFIX",
     "GIT_SHALLOW_FILE",
     "GIT_REPLACE_REF_BASE",
+    "GIT_TEMPLATE_DIR",  # would copy files and hooks into a new repository
+    "GIT_CONFIG_COUNT",  # config handed over through the environment (hooks path, reflogs, ...)
+    "GIT_CONFIG_PARAMETERS",
 )
 
 
@@ -53,23 +66,30 @@ class UsageError(Exception):
 
 
 def normalise(text):
-    """Lower case, letters and digits only: quotes, commas, spaces, hyphens and underscores between fragments disappear."""
-    return "".join(ch for ch in text.casefold() if ch.isalnum())
+    """Compatibility-normalised (so fullwidth, circled and mathematical letters and either composition of an accent become the plain
+    letters), lower case, letters and digits only; letters that render blank are dropped. Quotes, commas, spaces, hyphens and
+    underscores between fragments disappear."""
+    folded = unicodedata.normalize("NFKC", text).casefold()
+    return "".join(ch for ch in folded if ch.isalnum() and ord(ch) not in BLANK_LETTERS)
+
+
+def _blank(line):
+    """True when nothing visible is on the line: only spaces, control and format characters (a zero-width space, a byte-order mark)."""
+    return not any(not ch.isspace() and unicodedata.category(ch) != "Cf" for ch in line)
 
 
 def read_entries(path):
-    """The list's entries in order: one per line, `#` starts a comment, blank lines are ignored. A byte-order mark is not an entry."""
+    """The list's entries in order: one per line (a line ends at a newline only, as in an editor and wc -l), `#` starts a comment,
+    and a line with nothing visible on it is blank. A byte-order mark is not an entry."""
     try:
         with open(path, encoding="utf-8-sig") as fh:
-            lines = fh.read().splitlines()
+            lines = fh.read().split("\n")
     except OSError as err:
-        raise UsageError(
-            "cannot read the word list: %s" % (err.strerror or type(err).__name__)
-        )
+        raise UsageError("cannot read the word list: %s" % (err.strerror or type(err).__name__))
     except ValueError:
         raise UsageError("the word list is not valid UTF-8 text")
     entries = [line.split("#", 1)[0].strip() for line in lines]
-    entries = [entry for entry in entries if entry]
+    entries = [entry for entry in entries if not _blank(entry)]
     if not entries:
         raise UsageError("the word list has no entries")
     return entries
@@ -77,7 +97,11 @@ def read_entries(path):
 
 def git_env():
     """The environment for every git call: the real objects of THIS repository, and nothing inherited that changes that."""
-    env = {key: value for key, value in os.environ.items() if key not in GIT_SCRUB}
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in GIT_SCRUB and not key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))
+    }
     # a replace ref would hide the original commit from rev-list and cat-file, though a clone still carries it
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
     env["GIT_GRAFT_FILE"] = os.devnull  # the same for .git/info/grafts
@@ -99,6 +123,18 @@ def git(repo, *args, data=None):
     if done.returncode:
         raise UsageError("git %s failed in the given path" % args[0])
     return done.stdout
+
+
+def check_repo_root(repo):
+    """--repo must be a repository's own folder (its work tree root, its git folder or a bare repository): given any folder inside one,
+    git would walk up and check the parent instead."""
+    given = os.path.realpath(repo)
+    if given == os.path.realpath(git(repo, "rev-parse", "--absolute-git-dir").decode().strip()):
+        return
+    top = run_git(repo, ["rev-parse", "--show-toplevel"])
+    if top.returncode == 0 and os.path.realpath(top.stdout.decode().strip()) == given:
+        return
+    raise UsageError("--repo is not the root of a repository (git found one above it): pass the root itself")
 
 
 def preflight(repo):
@@ -162,13 +198,14 @@ def load_objects(repo, ids):
 
 
 def ref_names(repo):
-    return [
-        name
-        for name in git(repo, "for-each-ref", "--format=%(refname)")
-        .decode("utf-8", "replace")
-        .split("\n")
-        if name
-    ]
+    """Every ref name, the target of every symbolic ref and the branch HEAD names even when it does not exist yet (a clone is given it)."""
+    names = []
+    for line in git(repo, "for-each-ref", "--format=%(refname) %(symref)").decode("utf-8", "replace").split("\n"):
+        names.extend(part for part in line.split(" ") if part)
+    head = run_git(repo, ["symbolic-ref", "-q", "HEAD"])
+    if head.returncode == 0 and head.stdout.strip():
+        names.append(head.stdout.decode("utf-8", "replace").strip())
+    return names
 
 
 def split_object(raw):
@@ -184,11 +221,16 @@ def split_object(raw):
 
 
 def strip_trailers(message):
-    return "\n".join(
-        line
-        for line in message.splitlines()
-        if not line.lower().startswith("signed-off-by:")
-    )
+    """The message without the identity trailers of its LAST paragraph, and only when that paragraph is a block of `Token: value`
+    lines: a Signed-off-by line anywhere else, or one that is not `Name <email>`, is body text and still counts."""
+    paragraphs = message.rstrip("\n").split("\n\n")
+    if len(paragraphs) < 2:
+        return message
+    block = paragraphs[-1].split("\n")
+    if not all(TRAILER_BLOCK_LINE.fullmatch(line) for line in block):
+        return message
+    kept = [line for line in block if not IDENTITY_TRAILER.fullmatch(line)]
+    return "\n\n".join(paragraphs[:-1] + (["\n".join(kept)] if kept else []))
 
 
 class Findings:
@@ -225,32 +267,53 @@ class Findings:
             self.hits[number][category].update(labels)
 
 
+def scan_mergetag(findings, value, label):
+    """A mergetag header holds a whole tag object, one continuation line each: its tagger line is an identity, the rest is text."""
+    for sub in value.split("\n"):
+        text = sub.strip()
+        if text.startswith("tagger "):
+            findings.add_identity(text[len("tagger ") :], label)
+        else:
+            findings.add("metadata", sub, label)
+
+
 def scan_commit(findings, sha, raw):
-    """One commit object. Returns its root tree id."""
+    """One commit object. Returns its root tree id. Only a well-formed first `tree` line and well-formed `parent` lines are skipped
+    (they are object ids); a later `parent` or `tree` line, or any continuation line, is scanned like every other header."""
     label = [sha[:SHORT_ID]]
     lines, message = split_object(raw)
     tree = ""
     for line in lines:
         key, _sep, value = line.partition(" ")
-        if key == "tree":
+        if key == "tree" and not tree and OID.fullmatch(value):
             tree = value
-        elif key == "author" or key == "committer":
+        elif key == "parent" and OID.fullmatch(value):
+            continue
+        elif key in ("author", "committer") and "\n" not in value:
             findings.add_identity(value, label)
-        elif key != "parent":
-            # gpgsig, mergetag, encoding, or a header some tool added (its continuation lines are joined by split_object)
+        elif key == "mergetag":
+            scan_mergetag(findings, value, label)
+        else:
+            # gpgsig, encoding, a header some tool added, or a structural line that is not what it should be
             findings.add("metadata", line, label)
     findings.add_message(message, label)
     return tree
 
 
 def scan_tag(findings, raw):
-    """One annotated tag object: the name inside it, its tagger, any extra header and its message."""
+    """One annotated tag object: the name inside it, its tagger, any extra header and its message. Only the first, well-formed
+    `object` and `type` lines are skipped."""
     lines, message = split_object(raw)
+    seen = set()
     for line in lines:
         key, _sep, value = line.partition(" ")
-        if key == "tagger":
+        if key == "tagger" and "\n" not in value:
             findings.add_identity(value, ["ref"])
-        elif key not in ("object", "type"):
+        elif key == "object" and key not in seen and OID.fullmatch(value):
+            seen.add(key)
+        elif key == "type" and key not in seen and value in OBJECT_TYPES:
+            seen.add(key)
+        else:
             findings.add("tag", value if key == "tag" else line, ["ref"])
     findings.add_message(message, ["ref"], "tag")
 
@@ -282,9 +345,25 @@ def tree_files(objects, root, size, seen_trees):
             if mode == b"160000":
                 found.append((prefix + name, None))
             elif mode == b"40000":
+                found.append((prefix + name + "/", None))  # the name counts even when the directory is empty
                 stack.append((oid, prefix + name + "/"))
             else:
                 found.append((prefix + name, oid))
+    return found
+
+
+UTF16_TRIAL_LIMIT = 4 << 20  # a file up to this size is also read as UTF-16; a larger one only when it looks like UTF-16 (NUL bytes or a mark)
+
+
+def decodings(raw):
+    """A blob as text in the encodings a word could hide in: UTF-8, Latin-1 when it is not valid UTF-8, and UTF-16 (with a mark, or
+    either byte order without one). UTF-16 of a Cyrillic or Greek word holds no NUL byte, so a small file is always tried."""
+    text = raw.decode("utf-8", "replace")
+    found = [text]
+    if "\ufffd" in text:
+        found.append(raw.decode("latin-1"))
+    if len(raw) <= UTF16_TRIAL_LIMIT or b"\x00" in raw or raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        found.extend(raw.decode(codec, "replace") for codec in ("utf-16", "utf-16-le", "utf-16-be"))
     return found
 
 
@@ -307,13 +386,13 @@ def scan_trees(findings, objects, roots, size):
         elif kind == "blob" and oid not in owners:
             owners[oid].add("ref")
     for blob, labels in owners.items():
-        findings.add(
-            "content", objects[blob][1].decode("utf-8", "replace"), sorted(labels)
-        )
+        for text in decodings(objects[blob][1]):
+            findings.add("content", text, sorted(labels))
     return len(owners)
 
 
 def scan(repo, entries, allowed):
+    check_repo_root(repo)
     preflight(repo)
     commits = git(repo, "rev-list", "--all", "--reverse").decode().split()
     if not commits:
@@ -355,11 +434,12 @@ def report(findings, order, commit_count, blob_count, skipped_short, total_entri
             span = " first=%s last=%s" % (commits[0], commits[-1]) if commits else ""
             parts.append("%s=%d%s" % (category, len(labels), span))
         lines.append("ENTRY %d: %s" % (number, "; ".join(parts)))
-    lines.append(
-        "CLEAN"
-        if not findings.hits
-        else "NOT CLEAN entries=%s" % ",".join(str(n) for n in sorted(findings.hits))
-    )
+    if findings.hits:
+        lines.append("NOT CLEAN entries=%s" % ",".join(str(n) for n in sorted(findings.hits)))
+    elif skipped_short:  # a pass that left entries unchecked must not read like a full one
+        lines.append("CLEAN-PARTIAL unchecked=%d (entries shorter than %d characters cannot be checked)" % (skipped_short, MIN_LENGTH))
+    else:
+        lines.append("CLEAN")
     return "\n".join(lines)
 
 
@@ -417,6 +497,9 @@ def main(argv=None):
         return run(args)
     except UsageError as err:
         print("ERROR: %s" % err, file=sys.stderr)
+        return 2
+    except (MemoryError, RecursionError, OSError, ValueError, KeyError, IndexError) as err:
+        print("ERROR: unexpected %s: the check did not complete, so it proves nothing" % type(err).__name__, file=sys.stderr)
         return 2
 
 
