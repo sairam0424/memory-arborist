@@ -285,16 +285,27 @@ def finish_baseline(args, questions, results, labels, spend, ops):
     }
     ok = empty_pass <= EMPTY_PASS_LIMIT and noise <= NOISE_LIMIT
     if ok and args.save:
-        fd = os.open(mc.expand(args.save), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=1, sort_keys=True)
-        print("BASELINE saved " + mc.expand(args.save))
+        _save_baseline(args.save, data)
     return ok, "baseline snapshot=%s graded=%d empty_pass=%d flips=%d" % (
         labels["live"],
         graded,
         empty_pass,
         noise,
     )
+
+
+def _save_baseline(save, data):
+    target = mc.expand(save)
+    try:
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=1, sort_keys=True)
+    except OSError as err:  # the preflight catches the usual causes; a full disk or a change of mind in between ends here
+        raise mc.HygieneError(
+            "the baseline could not be saved to %s (%s); this run's results were not kept and it cost %.4f USD: fix that and run it again"
+            % (mc.printable(save), mc.clean_line(err.strerror or type(err).__name__, 80), data["total_usd"])
+        )
+    print("BASELINE saved " + target)
 
 
 def finish_staged(args, questions, results):
@@ -445,16 +456,26 @@ def read_baseline(path):
     return data
 
 
+def _save_problem(target):
+    """Why a baseline cannot be written to `target`, found without creating anything; None when the write should work."""
+    real = os.path.realpath(target)  # the write follows a link, so judge the place it leads to
+    if os.path.isdir(real):
+        return "the path is a folder"
+    if os.path.lexists(real):
+        return None if os.access(real, os.W_OK) else "the file cannot be written (or a link on the way cannot be followed)"
+    folder = os.path.dirname(real)
+    return None if os.path.isdir(folder) and os.access(folder, os.W_OK) else "its folder must exist and be writable"
+
+
 def _check_before_spending(args):
     """Everything about the files this run reads or writes that can be checked for free, so that a typo in a path does not cost a run."""
     arm, baseline, save = getattr(args, "arm", None), getattr(args, "baseline", None), getattr(args, "save", None)
     if arm == "staged" and baseline:
         read_baseline(baseline)
     elif arm == "baseline" and save:
-        target = mc.expand(save)
-        folder = os.path.dirname(target)
-        if os.path.isdir(target) or not os.path.isdir(folder) or not os.access(folder, os.W_OK):
-            raise mc.HygieneError("cannot write --save %s: its folder must exist and be writable, and the path must not be a folder" % mc.printable(save))
+        problem = _save_problem(mc.expand(save))
+        if problem:
+            raise mc.HygieneError("cannot write --save %s: %s" % (mc.printable(save), problem))
 
 
 def judge(args, runner):

@@ -119,8 +119,8 @@ def extract_json(text, unambiguous=False):
     if not unambiguous:
         return values[-1] if values else None
     objects = [v for v in values if isinstance(v, dict)]
-    distinct = [o for i, o in enumerate(objects) if o not in objects[:i]]
-    return distinct[0] if len(distinct) == 1 else None
+    # exactly one distinct object means every object equals the first (equality is transitive): one pass, not a pairwise search
+    return objects[0] if objects and all(o == objects[0] for o in objects) else None
 
 
 def fence_token(*texts):

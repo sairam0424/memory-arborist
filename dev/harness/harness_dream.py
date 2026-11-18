@@ -236,6 +236,8 @@ M = [
         "return values[0] if values else None",
     ),
     ("L02 tools check off", L, r"if out\.tools != \[\]:", "if False:"),
+    ("L03 two different objects accepted", L, r"all\(o == objects\[0\] for o in objects\)", "any(o == objects[0] for o in objects)"),
+    ("L04 no objects at all crashes", L, r"return objects\[0\] if objects and all", "return objects[0] if all"),
     (
         "U01 hunk validation off",
         U,
@@ -264,6 +266,9 @@ M = [
     ("R01 staged arm ungated", "recall/memory_recall.py", r"eg\.require_clear\(staged, args\.allow_secret_shapes\)", "None"),
     ("R02 live and baseline arms ungated", "recall/memory_recall.py", r"eg\.require_clear\(memory, args\.allow_secret_shapes\)", "None"),
     ("R03 recall refusal exits as generic failure", "recall/memory_recall.py", r"except eg\.SecretShapesRefused as err:", "except ZeroDivisionError as err:"),
+    ("R04 save preflight ignores links", "recall/memory_recall.py", r"real = os\.path\.realpath\(target\)", "real = target"),
+    ("R05 save preflight ignores a locked file", "recall/memory_recall.py", r'return None if os\.access\(real, os\.W_OK\) else "the file cannot be written[^\n]*', "return None"),
+    ("R06 late save failure not caught", "recall/memory_recall.py", r"    except OSError as err:  # the preflight catches", "    except ZeroDivisionError as err:  # the preflight catches"),
     # spend accounting and the per-writer cap
     ("C01 failed lane cost not counted", L, r"spend\.add\(failed\.cost if failed else 0\.0\)", "pass"),
     ("C02 lane timeout not charged", L, r"spend\.add\(settings\.per_q_usd\)", "pass"),
@@ -295,12 +300,13 @@ M = [m for m in M if len(sys.argv) < 2 or m[0].split()[0] in sys.argv[1:]]
 
 # Mutants in these modules are also run against the tests that own them (the base set does not match those file names).
 EXTRA_SUITES = {
+    "dream/memory_dream_lanes.py": [("dream/tests", "test_dream_extract_json_round2.py")],
     "memory_dream.py": [("tests", "test_memory_promote_round2.py")],
     "memory_dream_stage.py": [("tests", "test_memory_promote_round2.py")],
     "memory_egress.py": [("tests", "test_memory_egress.py"), ("recall/tests", "test_memory_recall_egress.py")],
     "memory_scan.py": [("tests", "test_memory_scan.py"), ("tests", "test_memory_extra_scan_common.py")],
     "memory_lint.py": [("tests", "test_memory_lint.py"), ("tests", "test_memory_extra_lint.py")],
-    "recall/memory_recall.py": [("recall/tests", "test_memory_recall_egress.py")],
+    "recall/memory_recall.py": [("recall/tests", "test_memory_recall_egress.py"), ("recall/tests", "test_memory_recall_save_preflight.py")],
     "recall/memory_recall_run.py": [("recall/tests", "test_memory_recall_cost.py")],
 }
 
