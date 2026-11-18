@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.join(SCRIPTS, "recall"))
 sys.path.insert(0, os.path.join(SCRIPTS, "dream"))
 import memory_common as mc  # noqa: E402
 import memory_dream_lanes as lanes  # noqa: E402
+import memory_evidence_verify as mev  # noqa: E402
 import memory_locate as locate  # noqa: E402
 import memory_redact as mr  # noqa: E402
 import memory_recall_run as mrr  # noqa: E402
@@ -92,6 +93,10 @@ LOGIN_ENV = (
     ("ANTHROPIC_CUSTOM_HEADERS", True),
     ("AWS_CONFIG_FILE", False),
     ("AWS_SHARED_CREDENTIALS_FILE", False),
+    ("AWS_WEB_IDENTITY_TOKEN_FILE", False),  # a path to a token file, not the token
+    ("AWS_ROLE_ARN", False),
+    ("AWS_ROLE_SESSION_NAME", False),
+    ("AWS_CA_BUNDLE", False),
     (
         "CLAUDE_CONFIG_DIR",
         False,
@@ -203,8 +208,13 @@ def plugin_info():
         return "memory-arborist", "unknown"
 
 
+# `claude --version` prints "2.1.327 (Claude Code)": the version starts a line. A number inside a warning or a path
+# ("node 20.11.0 is deprecated", ".../v18.19.0/bin") is not the version.
+VERSION_LINE = re.compile(r"^\s*(?:claude(?:\s+code)?\s+)?v?(\d+)\.(\d+)\.(\d+)", re.I | re.M)
+
+
 def parse_version(text):
-    match = re.search(r"(\d+)\.(\d+)\.(\d+)", text or "")
+    match = VERSION_LINE.search(text or "")
     return tuple(int(part) for part in match.groups()) if match else None
 
 
@@ -254,15 +264,22 @@ def check_python(version_info=None):
 def check_claude(probe, environ):
     """The claude binary on the PATH the children get, its version against the two floors, and the flags the engine passes."""
     env = mrr.child_env(environ)
-    found = shutil.which("claude", path=env.get("PATH", ""))
+    path = env.get("PATH", "")
+    # the children start in an empty temporary folder: a relative or empty PATH entry (it means the current folder) finds nothing there
+    absolute = os.pathsep.join(entry for entry in path.split(os.pathsep) if os.path.isabs(entry))
+    found = shutil.which("claude", path=absolute)
     if not found:
+        relative_only = bool(path) and shutil.which("claude", path=path) is not None
         return [
             Check(
                 FAIL,
                 "claude",
-                "not found on the PATH the children get (%d entries)"
-                % len([p for p in env.get("PATH", "").split(os.pathsep) if p]),
-                "install Claude Code, or start this from a shell whose PATH includes it",
+                "claude is reachable only through a relative or empty PATH entry, and the children start in another folder"
+                if relative_only
+                else "not found on the PATH the children get (%d entries)" % len([p for p in path.split(os.pathsep) if p]),
+                "start this from a shell whose PATH names the absolute folder that holds claude"
+                if relative_only
+                else "install Claude Code, or start this from a shell whose PATH includes it",
             )
         ]
     code, out, err = probe([found, "--version"], env)
@@ -310,8 +327,10 @@ def check_claude(probe, environ):
 
 
 def _listed(flag, helptext):
-    """True when `claude --help` shows the flag, either as is or in the shorthand `--append-system-prompt[-file]`."""
-    return flag in helptext or (flag.endswith("-file") and flag[: -len("-file")] + "[-file]" in helptext)
+    """True when `claude --help` shows the flag as a whole word (`--tools` is not found inside `--tools-allowed`), either as is
+    or in the shorthand `--append-system-prompt[-file]`."""
+    forms = [flag] + ([flag[: -len("-file")] + "[-file]"] if flag.endswith("-file") else [])
+    return any(re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(form), helptext) for form in forms)
 
 
 def _version_check(version):
@@ -388,6 +407,15 @@ def _guarded(name, function, *args):
 
 def _memory_check(memory_dir):
     text = memory_label(memory_dir)
+    walk = mc.walk_files(memory_dir)  # the snapshot step refuses a folder or a note it cannot read
+    unreadable = len(walk.errors) + sum(1 for rel in walk.files if not os.access(os.path.join(memory_dir, rel), os.R_OK))
+    if unreadable:
+        return Check(
+            FAIL,
+            "memory",
+            "%s: %d folders or notes cannot be read, so the snapshot step refuses (it will not make a partial copy)" % (text, unreadable),
+            "give your user read access to them (for a folder, execute access too), then run the doctor again",
+        )
     notes, lines = _count_notes(memory_dir)
     return Check(
         OK,
@@ -422,6 +450,13 @@ def _data_root_check(memory_dir, ops_root, ops):
     problem = _data_root_problem(probe_path)
     if problem:
         return problem
+    if os.path.lexists(ops) and not os.path.isdir(ops):
+        return Check(
+            FAIL,
+            "data-root",
+            "the data folder for these notes is a file or a broken link, so nothing can be written there",
+            "move it away, or use --ops-root (or MEMORY_ARBORIST_HOME) on another folder outside the notes, on the same disk",
+        )
     label = data_root_label(ops_root)
     state = "exists" if os.path.isdir(ops) else "is created by the first snapshot"
     if os.stat(_nearest_existing(memory_dir)).st_dev != os.stat(probe_path).st_dev:
@@ -443,7 +478,7 @@ def _data_root_check(memory_dir, ops_root, ops):
 def _nearest_existing(path):
     """The path itself or the closest folder above it that exists (a data root or a memory folder is created later)."""
     probe = os.path.abspath(path)
-    while not os.path.exists(probe) and os.path.dirname(probe) != probe:
+    while not os.path.lexists(probe) and os.path.dirname(probe) != probe:  # a broken link is something in the way, not a gap
         probe = os.path.dirname(probe)
     return probe
 
@@ -546,9 +581,22 @@ def _questions_state(ops):
 
 
 def _evidence_state(ops):
+    """The evidence folder, judged by the verifier the dream run uses: a digest it refuses (name, mode, header, size) is not OK here."""
     evidence = os.path.join(ops, "evidence")
-    digests = len([n for n in os.listdir(evidence) if n.endswith(".md")]) if os.path.isdir(evidence) else 0
-    return Check(OK if digests else INFO, "evidence", "%d evidence digests" % digests, "")
+    result = mev.verify_dir(evidence)
+    if result.ok:
+        return Check(OK, "evidence", "%d evidence digests" % result.digests, "")
+    if not result.digests and not result.untrusted_lines:
+        return Check(INFO, "evidence", "0 evidence digests", "")
+    if not result.digests:  # a symlink, or a folder that others can read: every command refuses it before it opens a file
+        return Check(WARN, "evidence", "the evidence folder is a symlink or can be read by others, so every command refuses it", "make it a real folder with mode 700, then run memory_evidence.py verify")
+    return Check(
+        WARN,
+        "evidence",
+        "%d evidence digests, some do not verify (over the size limit %d, bad header %d, untrusted %d)"
+        % (result.digests, result.over_limit, result.missing_header, result.untrusted_lines),
+        "delete the digests that memory_evidence.py verify names and run memory_evidence.py build again; the dream run refuses this folder as it is",
+    )
 
 
 def _snapshots_state(ops):
