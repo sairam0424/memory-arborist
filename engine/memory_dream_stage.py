@@ -332,45 +332,54 @@ def log_or_note(ops, op, subject, bullets):
         )
 
 
+_watched = set()
+
+
 def say(line):
-    """Print `line` and flush it; with the output stream gone (a closed pipe) it goes to the error stream, so the way back is never lost.
-    The flush is what makes the failure show here: stdout to a pipe or a file is block-buffered, and the error would surface only at exit."""
+    """Print `line` and flush it. With the output stream gone (a closed pipe or terminal) it goes to the error stream, and if that is gone
+    too nothing can be shown; it never raises, because what counts then is the record on disk. The flush is what makes the failure of a
+    block-buffered stream show here and not at exit."""
     try:
         print(line)
         sys.stdout.flush()
+        return
     except OSError:
+        pass
+    say_err(line)
+
+
+def say_err(line):
+    try:
         print(line, file=sys.stderr)
+        sys.stderr.flush()
+    except OSError:
+        pass
 
 
 @contextlib.contextmanager
-def deferred_signals():
-    """Hold back Ctrl-C, SIGTERM and SIGHUP until the block ends, so a note is never left between its archived copy and its new one."""
+def held_signals():
+    """Hold back Ctrl-C, SIGTERM and SIGHUP for the whole block (the moves of every note, the counting and the record), so that nothing
+    can cut it in two. interrupt_pending() says whether one arrived. At the end whatever arrived is consumed, not delivered: the work it
+    asked to stop is by then done or recorded. A signal the parent set to ignore (nohup) is left alone, as it was."""
     mask = getattr(signal, "pthread_sigmask", None)
-    if mask is None:  # not on this platform: nothing to defer with (the tool supports macOS and Linux)
+    held = {sig for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP) if signal.getsignal(sig) is not signal.SIG_IGN}
+    if mask is None or not held:  # not on this platform (the tool supports macOS and Linux): nothing to hold with
         yield
         return
-    old = mask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM, signal.SIGHUP})
+    old = mask(signal.SIG_BLOCK, held)
+    _watched.update(held)
     try:
         yield
     finally:
+        _watched.clear()
+        for _ in range(8):  # bounded: a flood of signals cannot keep this loop going
+            arrived = signal.sigpending() & held
+            if not arrived:
+                break
+            signal.sigwait(arrived)
         mask(signal.SIG_SETMASK, old)
 
 
-@contextlib.contextmanager
-def interrupts_as_keyboard():
-    """SIGTERM and SIGHUP (a closed terminal) end the promote the way Ctrl-C does, so that it can record what it replaced."""
-
-    def interrupt(signum, frame):
-        raise KeyboardInterrupt
-
-    saved = {}
-    try:
-        for sig in (signal.SIGTERM, signal.SIGHUP):
-            saved[sig] = signal.signal(sig, interrupt)
-    except ValueError:  # not the main thread: handlers cannot be set, and the default behaviour stays
-        pass
-    try:
-        yield
-    finally:
-        for sig, handler in saved.items():
-            signal.signal(sig, handler)
+def interrupt_pending():
+    """True when a signal held back by held_signals has arrived."""
+    return bool(_watched and signal.sigpending() & _watched)
