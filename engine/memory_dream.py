@@ -269,14 +269,19 @@ def _install(memory, ops, run_dir, prepared, manifest, now):
     for rel, tmp in prepared.items():
         live = os.path.join(memory, rel)
         try:
-            if mc.sha256_file(live) != manifest["files"][rel]["sha256"]:
-                raise _Partial("%s changed during the promotion" % mc.printable(rel), done, archive_dir)
-            sn._swap_in(memory, tmp, live, archive_dir, rel)
-            done.append(rel)
-            if mc.sha256_file(live) != mc.sha256_file(os.path.join(run_dir, "memory", rel)):
-                raise _Partial("read-back check failed for %s" % mc.printable(rel), done, archive_dir)
+            with ds.deferred_signals():  # an interrupt waits until this note is fully replaced and counted
+                if mc.sha256_file(live) != manifest["files"][rel]["sha256"]:
+                    raise _Partial("%s changed during the promotion" % mc.printable(rel), done, archive_dir)
+                sn._swap_in(memory, tmp, live, archive_dir, rel)
+                done.append(rel)
+                if mc.sha256_file(live) != mc.sha256_file(os.path.join(run_dir, "memory", rel)):
+                    raise _Partial("read-back check failed for %s" % mc.printable(rel), done, archive_dir)
         except _Partial:
             raise
+        except KeyboardInterrupt:  # Ctrl-C, or SIGTERM or SIGHUP turned into one, delivered between two notes
+            if len(done) == len(prepared):  # it landed as the last note was finished: the promote is complete
+                break
+            raise _Partial("interrupted (Ctrl-C or a stop signal) after %d of %d notes" % (len(done), len(prepared)), done, archive_dir)
         except (mc.HygieneError, OSError) as err:  # a live note that vanished, an I/O error: whatever was replaced so far is recorded
             reason = err.strerror if isinstance(err, OSError) and err.strerror else err
             reason = str(reason).replace("nothing was replaced", "this note was not replaced")  # true of that one note, not of the whole promote
@@ -314,16 +319,6 @@ def _run_dir_of(ops, run_id):
     return run_dir
 
 
-def _say(line):
-    """Print `line` and flush it; with the output stream gone (a closed pipe) it goes to the error stream, so the way back is never lost.
-    The flush is what makes the failure show here: stdout to a pipe or a file is block-buffered, and the error would surface only at exit."""
-    try:
-        print(line)
-        sys.stdout.flush()
-    except OSError:
-        print(line, file=sys.stderr)
-
-
 def _record_partial(ops, run_dir, run_id, err, pre):
     if not err.done and os.path.lexists(os.path.join(run_dir, MARKER)):
         # another promote of this run finished while this one failed: it is not "promotable again", and nothing more is recorded
@@ -338,7 +333,7 @@ def _record_partial(ops, run_dir, run_id, err, pre):
     }
     undo = "`memory_hygiene.py restore --snapshot %s --file <note> --apply --force`" % pre["id"]
     if err.done:  # first: the way back is on screen whatever happens to the marker or the log
-        _say(
+        ds.say(
             "PARTIAL replaced %s; the old copies are in %s; pre-promote snapshot %s. To undo, restore each of those notes with %s"
             % (", ".join(map(mc.printable, err.done)), err.archive_dir, pre["id"], undo)
         )
@@ -360,7 +355,7 @@ def _record_partial(ops, run_dir, run_id, err, pre):
 
 
 def _record_promoted(ops, run_dir, run_id, done, pre, snap, archive_dir):
-    _say(  # first: the way back is on screen whatever happens to the marker or the log
+    ds.say(  # first: the way back is on screen whatever happens to the marker or the log
         "PROMOTED %d notes; pre-promote snapshot %s; old copies in %s"
         % (len(done), pre["id"], archive_dir)
     )
@@ -388,17 +383,19 @@ def _apply_promotion(args, memory, ops, run_dir, snap, touched):
     manifest = sn.load_manifest(ops, snap)
     prepared = _prepare_install(memory, ops, run_dir, touched, manifest)
     pre = sn.take_snapshot(memory, ops, now=args.now)
-    with reg.ops_lock(ops):  # both records are written before the lock is released: a promote that lost the race sees the marker
+    with ds.interrupts_as_keyboard(), reg.ops_lock(ops):  # both records are written before the lock is released: a loser sees the marker
         for rel in touched:  # only now: a promote refused for any reason before this point must not claim it is replacing anything
-            _say("replacing %s (the old copy is archived first)" % mc.printable(rel))
+            ds.say("replacing %s (the old copy is archived first)" % mc.printable(rel))
         try:
             done, archive_dir = _install(
                 memory, ops, run_dir, prepared, manifest, args.now
             )
         except _Partial as err:
-            _record_partial(ops, run_dir, args.run, err, pre)
+            with ds.deferred_signals():  # a second interrupt must not cut the record short
+                _record_partial(ops, run_dir, args.run, err, pre)
             raise
-        _record_promoted(ops, run_dir, args.run, done, pre, snap, archive_dir)
+        with ds.deferred_signals():
+            _record_promoted(ops, run_dir, args.run, done, pre, snap, archive_dir)
 
 
 def cmd_promote(args):
@@ -485,6 +482,9 @@ def main(argv=None):
     ) as err:
         print("ERROR: %s" % mc.printable(err), file=sys.stderr)
         return EXIT_FAIL
+    except KeyboardInterrupt:  # outside the part of a promote that records itself: nothing is half done
+        print("INTERRUPTED: if a promote was running, check the notes and `memory_hygiene.py snapshots` before running it again", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":

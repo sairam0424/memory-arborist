@@ -6,10 +6,12 @@ Nothing here touches the live memory directory and nothing is deleted or moved. 
 staged copy: they rebuild what it must contain (snapshot plus hunks) and compare byte for byte.
 """
 
+import contextlib
 import hashlib
 import json
 import os
 import shutil
+import signal
 import sys
 from collections import Counter, namedtuple
 
@@ -328,3 +330,47 @@ def log_or_note(ops, op, subject, bullets):
             "NOTE: the log entry could not be written (%s); the run's marker and the snapshots hold the record"
             % mc.clean_line(err.strerror or type(err).__name__, 80)
         )
+
+
+def say(line):
+    """Print `line` and flush it; with the output stream gone (a closed pipe) it goes to the error stream, so the way back is never lost.
+    The flush is what makes the failure show here: stdout to a pipe or a file is block-buffered, and the error would surface only at exit."""
+    try:
+        print(line)
+        sys.stdout.flush()
+    except OSError:
+        print(line, file=sys.stderr)
+
+
+@contextlib.contextmanager
+def deferred_signals():
+    """Hold back Ctrl-C, SIGTERM and SIGHUP until the block ends, so a note is never left between its archived copy and its new one."""
+    mask = getattr(signal, "pthread_sigmask", None)
+    if mask is None:  # not on this platform: nothing to defer with (the tool supports macOS and Linux)
+        yield
+        return
+    old = mask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM, signal.SIGHUP})
+    try:
+        yield
+    finally:
+        mask(signal.SIG_SETMASK, old)
+
+
+@contextlib.contextmanager
+def interrupts_as_keyboard():
+    """SIGTERM and SIGHUP (a closed terminal) end the promote the way Ctrl-C does, so that it can record what it replaced."""
+
+    def interrupt(signum, frame):
+        raise KeyboardInterrupt
+
+    saved = {}
+    try:
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            saved[sig] = signal.signal(sig, interrupt)
+    except ValueError:  # not the main thread: handlers cannot be set, and the default behaviour stays
+        pass
+    try:
+        yield
+    finally:
+        for sig, handler in saved.items():
+            signal.signal(sig, handler)
