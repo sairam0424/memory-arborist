@@ -194,7 +194,7 @@ def _regrounded(ops, snap, accepted):
 def _promotion_plan(memory, ops, run_dir):
     """(snapshot id, accepted hunks, touched files, digest); refuses unless the run is intact and the live notes are unchanged."""
     if os.path.lexists(os.path.join(run_dir, MARKER)):
-        raise mc.HygieneError(_already_promoted_message(run_dir))
+        raise mc.HygieneError(ds.marker_message(os.path.join(run_dir, MARKER)))
     walk = mc.walk_files(run_dir)
     if walk.symlinks or walk.special or walk.errors:
         raise mc.HygieneError("the run directory holds links or special files")
@@ -272,6 +272,7 @@ def _install(memory, ops, run_dir, prepared, manifest, now):
             raise
         except (mc.HygieneError, OSError) as err:  # a live note that vanished, an I/O error: whatever was replaced so far is recorded
             reason = err.strerror if isinstance(err, OSError) and err.strerror else err
+            reason = str(reason).replace("nothing was replaced", "this note was not replaced")  # true of that one note, not of the whole promote
             raise _Partial("%s: %s" % (mc.printable(rel), mc.clean_line(reason, 160)), done, archive_dir)
     return done, archive_dir
 
@@ -297,22 +298,6 @@ def _write_marker(run_dir, data, name=MARKER):
         json.dump(data, fh)
 
 
-def _already_promoted_message(run_dir):
-    """Why a run cannot be promoted again: finished, or only partly done (with the way back)."""
-    try:
-        marker = json.loads(mc.read_text(os.path.join(run_dir, MARKER)))
-    except (OSError, ValueError, RecursionError):
-        marker = {}
-    if marker.get("status") != "partial":
-        return "this run was already promoted"
-    return (
-        "this run was already partly promoted (%d notes replaced; pre-promote snapshot %s; old copies in %s). To undo, run "
-        "`memory_hygiene.py restore --snapshot %s --file <note> --apply --force` for each replaced note; then take a fresh snapshot "
-        "(step 1) and run the dream again (step 4)"
-        % (len(marker.get("files", [])), marker.get("pre_snapshot", "?"), marker.get("archive", "?"), marker.get("pre_snapshot", "?"))
-    )
-
-
 def _run_dir_of(ops, run_id):
     if not RUN_ID.fullmatch(run_id):
         raise mc.HygieneError("not a dream run id: %s" % mc.printable(run_id))
@@ -325,7 +310,7 @@ def _run_dir_of(ops, run_id):
 def _record_partial(ops, run_dir, run_id, err, pre):
     if not err.done and os.path.lexists(os.path.join(run_dir, MARKER)):
         # another promote of this run finished while this one failed: it is not "promotable again", and nothing more is recorded
-        print("NOTHING was replaced by this attempt: another promote of this run finished first (%s)" % _already_promoted_message(run_dir))
+        print("NOTHING was replaced by this attempt: another promote of this run finished first (%s)" % ds.marker_message(os.path.join(run_dir, MARKER)))
         return
     data = {
         "status": "partial" if err.done else "failed-before-replacing",
@@ -334,24 +319,27 @@ def _record_partial(ops, run_dir, run_id, err, pre):
         "archive": err.archive_dir,
         "pre_snapshot": pre["id"],
     }
-    if err.done:
-        _write_marker(run_dir, data)
-    else:  # nothing was replaced: leave the run promotable once the cause is fixed
-        _write_marker(run_dir, data, os.path.basename(mc.unique_path(os.path.join(run_dir, FAILED_MARKER))))
-    mc.append_log(
-        ops,
-        "promote",
-        "PARTIAL run=%s replaced=%d" % (run_id, len(err.done)),
-        ["Error: " + mc.clean_line(err, 200), "Archive: " + err.archive_dir],
-    )
+    undo = "`memory_hygiene.py restore --snapshot %s --file <note> --apply --force`" % pre["id"]
+    if err.done:  # first: the way back is on screen whatever happens to the marker or the log
+        print(
+            "PARTIAL replaced %s; the old copies are in %s; pre-promote snapshot %s. To undo, restore each of those notes with %s"
+            % (", ".join(map(mc.printable, err.done)), err.archive_dir, pre["id"], undo)
+        )
+    name = MARKER if err.done else os.path.basename(mc.unique_path(os.path.join(run_dir, FAILED_MARKER)))  # nothing replaced: leave the run promotable
+    try:
+        _write_marker(run_dir, data, name)
+    except OSError as oserr:
+        cause = mc.clean_line(oserr.strerror or type(oserr).__name__, 80)
+        if not err.done:
+            print("NOTHING was replaced (%s); the failure could not be recorded either (%s)" % (mc.clean_line(err, 120), cause))
+            return
+        raise mc.HygieneError(
+            "the notes WERE replaced (see the PARTIAL line above; the failure was: %s) but the run's marker could not be written (%s): do not "
+            "promote this run again; to undo, run %s for each replaced note" % (mc.clean_line(err, 100), cause, undo)
+        )
+    ds.log_or_note(ops, "promote", "PARTIAL run=%s replaced=%d" % (run_id, len(err.done)), ["Error: " + mc.clean_line(err, 200), "Archive: " + err.archive_dir])
     if not err.done:
         print("NOTHING was replaced (%s); the run can be promoted again once that is fixed" % mc.clean_line(err, 120))
-        return
-    print(
-        "PARTIAL replaced %s; the old copies are in %s; pre-promote snapshot %s. To undo, restore each of those notes with "
-        "`memory_hygiene.py restore --snapshot %s --file <note> --apply --force`"
-        % (", ".join(map(mc.printable, err.done)), err.archive_dir, pre["id"], pre["id"])
-    )
 
 
 def _record_promoted(ops, run_dir, run_id, done, pre, snap, archive_dir):
@@ -376,12 +364,7 @@ def _record_promoted(ops, run_dir, run_id, done, pre, snap, archive_dir):
             "run again; to undo, run `memory_hygiene.py restore --snapshot %s --file <note> --apply --force` for each note"
             % (mc.clean_line(err.strerror or type(err).__name__, 80), pre["id"])
         )
-    mc.append_log(
-        ops,
-        "promote",
-        "run=%s files=%d" % (run_id, len(done)),
-        ["Pre-promote snapshot: " + pre["id"], "Notes: " + ", ".join(done)],
-    )
+    ds.log_or_note(ops, "promote", "run=%s files=%d" % (run_id, len(done)), ["Pre-promote snapshot: " + pre["id"], "Notes: " + ", ".join(done)])
 
 
 def _apply_promotion(args, memory, ops, run_dir, snap, touched):

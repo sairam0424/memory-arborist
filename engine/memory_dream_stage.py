@@ -293,3 +293,38 @@ def stage_run(ops, snap_id, accepted, rejected, deferred, now=None, incomplete=0
     for name, data in encoded.items():
         _write_new(os.path.join(run_dir, name), data)
     return StageResult(run_dir, not found, found, digest)
+
+
+def marker_message(path):
+    """Why a run with this marker file cannot be promoted again: finished, only partly done (with the way back), or a marker nobody can read."""
+    try:
+        marker = json.loads(mc.read_text(path))
+    except (OSError, ValueError, RecursionError):
+        marker = None
+    status = marker.get("status") if isinstance(marker, dict) else None
+    if status == "promoted":
+        return "this run was already promoted"
+    if status != "partial":  # an empty or damaged marker (a write that failed halfway) is not proof that the promote finished
+        return (
+            "this run has a marker file (%s) that cannot be read, so it is not known whether notes were replaced: check the notes and "
+            "`memory_hygiene.py snapshots` before doing anything else, and do not promote this run again until you know"
+            % mc.printable(os.path.basename(path))
+        )
+    snap = marker.get("pre_snapshot", "?")
+    return (
+        "this run was already partly promoted (%d notes replaced; pre-promote snapshot %s; old copies in %s). To undo, run "
+        "`memory_hygiene.py restore --snapshot %s --file <note> --apply --force` for each replaced note; then take a fresh snapshot "
+        "(step 1) and run the dream again (step 4)"
+        % (len(marker.get("files", [])), snap, marker.get("archive", "?"), snap)
+    )
+
+
+def log_or_note(ops, op, subject, bullets):
+    """The log is a convenience record: a full disk must not turn a finished promote into a traceback."""
+    try:
+        mc.append_log(ops, op, subject, bullets)
+    except OSError as err:
+        print(
+            "NOTE: the log entry could not be written (%s); the run's marker and the snapshots hold the record"
+            % mc.clean_line(err.strerror or type(err).__name__, 80)
+        )

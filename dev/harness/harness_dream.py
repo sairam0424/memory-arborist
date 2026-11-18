@@ -194,11 +194,15 @@ M = [
         "    accepted = stored",
     ),
     ("P04 expect off", P, r"if args\.expect != digest:", "if False:"),
+    ("P11 partial reason keeps the one-note wording", P, r'            reason = str\(reason\)\.replace\("nothing was replaced", "this note was not replaced"\)[^\n]*\n', ""),
+    ("P12 unreadable marker counts as promoted", S, r'    if status == "promoted":\n        return "this run was already promoted"\n    if status != "partial":', '    if status != "partial":\n        return "this run was already promoted"\n    if False:'),
+    ("P13 marker write failure not caught", P, r"    except OSError as oserr:\n        cause =", "    except ZeroDivisionError as oserr:\n        cause ="),
+    ("P14 log write failure not caught", S, r"    except OSError as err:\n        print\(\n            \"NOTE: the log entry", "    except ZeroDivisionError as err:\n        print(\n            \"NOTE: the log entry"),
     (
         "P05 live sha recheck off",
         P,
-        r"if mc\.sha256_file\(live\) != manifest\[\"files\"\]\[rel\]\[\"sha256\"\]:\n            raise _Partial",
-        "if False:\n            raise _Partial",
+        r"if mc\.sha256_file\(live\) != manifest\[\"files\"\]\[rel\]\[\"sha256\"\]:\n                raise _Partial",
+        "if False:\n                raise _Partial",
     ),
     (
         "P06 unsafe name precheck off",
@@ -228,8 +232,8 @@ M = [
     (
         "L01 first json wins",
         L,
-        r"            last, index = decoder\.raw_decode\(body, found\.start\(\)\)",
-        "            last, index = decoder.raw_decode(body, found.start())\n            break",
+        r"return values\[-1\] if values else None",
+        "return values[0] if values else None",
     ),
     ("L02 tools check off", L, r"if out\.tools != \[\]:", "if False:"),
     (
@@ -291,6 +295,8 @@ M = [m for m in M if len(sys.argv) < 2 or m[0].split()[0] in sys.argv[1:]]
 
 # Mutants in these modules are also run against the tests that own them (the base set does not match those file names).
 EXTRA_SUITES = {
+    "memory_dream.py": [("tests", "test_memory_promote_round2.py")],
+    "memory_dream_stage.py": [("tests", "test_memory_promote_round2.py")],
     "memory_egress.py": [("tests", "test_memory_egress.py"), ("recall/tests", "test_memory_recall_egress.py")],
     "memory_scan.py": [("tests", "test_memory_scan.py"), ("tests", "test_memory_extra_scan_common.py")],
     "memory_lint.py": [("tests", "test_memory_lint.py"), ("tests", "test_memory_extra_lint.py")],
