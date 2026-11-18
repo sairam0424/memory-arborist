@@ -266,6 +266,8 @@ M = [
     ("R01 staged arm ungated", "recall/memory_recall.py", r"eg\.require_clear\(staged, args\.allow_secret_shapes\)", "None"),
     ("R02 live and baseline arms ungated", "recall/memory_recall.py", r"eg\.require_clear\(memory, args\.allow_secret_shapes\)", "None"),
     ("R03 recall refusal exits as generic failure", "recall/memory_recall.py", r"except eg\.SecretShapesRefused as err:", "except ZeroDivisionError as err:"),
+    ("K01 counts take digits of other scripts", "memory_common.py", r"int\(text\) if text\.isascii\(\) and text\.isdigit\(\) else 0", "int(text) if text.isdigit() else 0"),
+    ("K02 a very long digit string crashes (Python 3.11 and later)", "memory_common.py", r"    except ValueError:  # more digits than int\(\) will read\n        value = 0", "    except ZeroDivisionError:  # more digits than int() will read\n        value = 0"),
     ("R04 save preflight ignores links", "recall/memory_recall.py", r"real = os\.path\.realpath\(target\)", "real = target"),
     ("R05 save preflight ignores a locked file", "recall/memory_recall.py", r'return None if os\.access\(real, os\.W_OK\) else "the file cannot be written[^\n]*', "return None"),
     ("R06 late save failure not caught", "recall/memory_recall.py", r"    except OSError as err:  # the preflight catches", "    except ZeroDivisionError as err:  # the preflight catches"),
@@ -300,6 +302,7 @@ M = [m for m in M if len(sys.argv) < 2 or m[0].split()[0] in sys.argv[1:]]
 
 # Mutants in these modules are also run against the tests that own them (the base set does not match those file names).
 EXTRA_SUITES = {
+    "memory_common.py": [("tests", "test_memory_positive_int_strict.py")],
     "dream/memory_dream_lanes.py": [("dream/tests", "test_dream_extract_json_round2.py")],
     "memory_dream.py": [("tests", "test_memory_promote_round2.py")],
     "memory_dream_stage.py": [("tests", "test_memory_promote_round2.py")],

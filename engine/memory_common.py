@@ -108,11 +108,12 @@ def printable(text):
 
 
 def positive_int(text):
-    """argparse type for a count option: a whole number above zero (a negative one acts as a slice, zero as an empty run)."""
+    """argparse type for a count option: ASCII digits only, above zero (a negative one acts as a slice, zero as an empty run; int() alone
+    would also take +3, 1_0, a padded number and digits of other scripts)."""
     try:
-        value = int(text)
-    except ValueError:
-        raise argparse.ArgumentTypeError("must be a whole number above zero")
+        value = int(text) if text.isascii() and text.isdigit() else 0
+    except ValueError:  # more digits than int() will read
+        value = 0
     if value <= 0:
         raise argparse.ArgumentTypeError("must be a whole number above zero")
     return value
