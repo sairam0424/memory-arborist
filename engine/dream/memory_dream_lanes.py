@@ -105,22 +105,51 @@ def _json_values(body):
     return found
 
 
+MAX_JSON_DEPTH = 32  # nothing a lane returns nests more than a few levels; a reply nested deeper is an attack on the parent, not an answer
+
+
+def _shallow(value, limit=MAX_JSON_DEPTH):
+    """True when no object or list inside `value` is nested more than `limit` levels. Iterative and linear."""
+    stack = [(value, 1)]
+    while stack:
+        item, depth = stack.pop()
+        if isinstance(item, dict):
+            children = item.values()
+        elif isinstance(item, list):
+            children = item
+        else:
+            continue
+        if depth > limit:
+            return False
+        stack.extend((child, depth + 1) for child in children if isinstance(child, (dict, list)))
+    return True
+
+
+def _no_repeated_keys(pairs):
+    keys = [key for key, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("an object repeats a key")  # json keeps the LAST of two equal keys: a reject followed by a keep would be a keep
+    return dict(pairs)
+
+
 def extract_json(text, unambiguous=False):
     """The JSON a reply holds: the whole reply if it parses, else the LAST JSON value in the chatter (a model that quotes data
     before answering must not let the quoted data win). With `unambiguous` (the verifier, the only model gate) the answer must BE the
-    reply: one JSON object, alone or inside one surrounding code fence, and a reply longer than the cap is unusable rather than cut.
-    An object found inside prose cannot be told from a line quoted out of an untrusted note, which could turn a rejection into a keep.
-    Bounded work; None when nothing usable parses."""
+    reply: one JSON object, alone or inside one surrounding code fence, with no repeated key, and a reply longer than the cap is unusable
+    rather than cut. An object found in prose cannot be told from a line quoted out of an untrusted note, which could turn a rejection
+    into a keep. In both modes a value nested deeper than MAX_JSON_DEPTH is unusable. Bounded work; None when nothing usable parses."""
     text = text.strip()
     if unambiguous and len(text) > MAX_REPLY_CHARS:
         return None
     body = _unfence(text[:MAX_REPLY_CHARS])
     try:
-        whole = json.loads(body)
+        whole = json.loads(body, object_pairs_hook=_no_repeated_keys) if unambiguous else json.loads(body)
     except (ValueError, RecursionError):
         values = [] if unambiguous else _json_values(body)
-        return values[-1] if values else None
-    return whole if not unambiguous or isinstance(whole, dict) else None
+        found = values[-1] if values else None
+    else:
+        found = whole if not unambiguous or isinstance(whole, dict) else None
+    return found if _shallow(found) else None
 
 
 def fence_token(*texts):
