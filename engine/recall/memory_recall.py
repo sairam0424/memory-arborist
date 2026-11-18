@@ -295,16 +295,23 @@ def finish_baseline(args, questions, results, labels, spend, ops):
 
 
 def _save_baseline(save, data):
-    target = mc.expand(save)
+    """Write the baseline next to its place and move it over (an atomic replace on one filesystem): a write that fails leaves the previous
+    file as it was. The temporary file is private (0600), exclusive and has an unpredictable name; the path is resolved once, so a link
+    stays a link and the file it leads to is replaced; nothing is ever deleted: a failed attempt names its partial copy."""
+    target = os.path.realpath(mc.expand(save))
+    partial = None
     try:
-        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd, partial = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".baseline-", suffix=".part")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=1, sort_keys=True)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(partial, target)
     except OSError as err:  # the preflight catches the usual causes; a full disk or a change of mind in between ends here
+        left = "; the partial copy %s is safe to remove by hand (this tool never deletes)" % mc.printable(partial) if partial else ""
         raise mc.HygieneError(
-            "the baseline could not be saved to %s (%s); this run's results were not kept and it cost %.4f USD, and a file that was already "
-            "there may be cut short (the judge never replaces or renames files, so it writes in place): fix that and run it again"
-            % (mc.printable(save), mc.clean_line(err.strerror or type(err).__name__, 80), data["total_usd"])
+            "the baseline could not be saved to %s (%s); this run's results were not kept and it cost %.4f USD; a previous file is untouched%s: "
+            "fix that and run it again" % (mc.printable(save), mc.clean_line(err.strerror or type(err).__name__, 80), data["total_usd"], left)
         )
     print("BASELINE saved " + target)
 

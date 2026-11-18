@@ -121,23 +121,71 @@ class SavePreflightTests(TempRoot):
         self.assertEqual(code, 0, out + err)
         self.assertGreater(os.path.getsize(real), 2)
 
-    def test_a_write_that_fails_after_the_paid_calls_is_a_message_that_says_what_was_lost(self):
+    def test_a_write_that_fails_after_the_paid_calls_keeps_the_previous_baseline_and_names_the_partial_copy(self):
         save = os.path.join(self.scratch, "late.json")
-        real_open = os.open
-
-        def failing(path, flags, mode=0o777, **kwargs):
-            if path == save and flags & os.O_CREAT:
-                raise OSError(errno.ENOSPC, "No space left on device")
-            return real_open(path, flags, mode, **kwargs)
-
-        with mock.patch.object(mrc.os, "open", failing):
+        with open(save, "w", encoding="utf-8") as fh:
+            fh.write('{"old": "baseline"}')
+        with mock.patch.object(mrc.json, "dump", side_effect=OSError(errno.ENOSPC, "No space left on device")):
             code, out, err = self.baseline_run(save, MemoryReadingRunner())
         self.assertEqual(code, 1, out + err)
         self.assertNotIn("Traceback", out + err)
         self.assertIn("could not be saved", err)
         self.assertIn("No space left on device", err)
-        self.assertIn("writes in place", err)
-        self.assertFalse(os.path.exists(save))
+        self.assertIn("previous file is untouched", err)
+        self.assertIn(".baseline-", err)  # the partial copy is named: this tool never deletes
+        with open(save, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), '{"old": "baseline"}')
+
+    def test_a_failed_move_leaves_the_previous_baseline_too(self):
+        save = os.path.join(self.scratch, "move.json")
+        with open(save, "w", encoding="utf-8") as fh:
+            fh.write('{"old": "baseline"}')
+        with mock.patch.object(mrc.os, "replace", side_effect=OSError(errno.EXDEV, "Invalid cross-device link")):
+            code, out, err = self.baseline_run(save, MemoryReadingRunner())
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("could not be saved", err)
+        with open(save, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), '{"old": "baseline"}')
+
+    def test_the_new_file_is_private_is_made_next_to_its_place_and_leaves_no_partial_copy(self):
+        save = os.path.join(self.scratch, "private.json")
+        with open(save, "w", encoding="utf-8") as fh:
+            fh.write("{}")
+        os.chmod(save, 0o644)  # an older, readable file: the new one holds the person's questions and answers, so it is private
+        moves, events = [], []
+        real_replace, real_fsync = os.replace, os.fsync
+
+        def spy(src, dst):
+            moves.append((src, dst))
+            events.append("replace")
+            return real_replace(src, dst)
+
+        def sync(fd):
+            events.append("fsync")
+            return real_fsync(fd)
+
+        with mock.patch.object(mrc.os, "replace", spy), mock.patch.object(mrc.os, "fsync", sync):
+            code, out, err = self.baseline_run(save, MemoryReadingRunner())
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(events, ["fsync", "replace"], "the new file must be on disk before it takes the old one's place")
+        self.assertEqual(len(moves), 1)
+        source, destination = moves[0]
+        self.assertEqual(os.path.dirname(source), os.path.dirname(os.path.realpath(save)))  # same folder: the move is atomic
+        self.assertTrue(os.path.basename(source).startswith(".baseline-"))
+        self.assertEqual(destination, os.path.realpath(save))
+        self.assertEqual(stat.S_IMODE(os.stat(save).st_mode), 0o600)
+        self.assertEqual([n for n in os.listdir(self.scratch) if n.startswith(".baseline-")], [])
+
+    def test_a_link_stays_a_link_and_the_file_it_leads_to_is_replaced(self):
+        real = os.path.join(self.scratch, "target.json")
+        with open(real, "w", encoding="utf-8") as fh:
+            fh.write("{}")
+        link = os.path.join(self.scratch, "link-to-target.json")
+        os.symlink(real, link)
+        code, out, err = self.baseline_run(link, MemoryReadingRunner())
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(os.path.islink(link))
+        self.assertGreater(os.path.getsize(real), 2)
 
     def test_a_named_pipe_or_another_file_that_is_not_a_regular_file_is_refused(self):
         fifo = os.path.join(self.scratch, "fifo.json")

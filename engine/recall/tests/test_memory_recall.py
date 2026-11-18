@@ -620,21 +620,25 @@ class SafetyTests(TempRoot):
             "rename",
             "removedirs",
         }
+        # Changed on the owner's decision (2026-11-18): this test used to ban every replace. The judge's saved baseline is now written
+        # next to its place and moved over it, so that a failed write cannot cut an older baseline short: exactly one os.replace in the
+        # judge, none in the run module, and every other banned call stays banned.
+        allowed_os_replace = {mrr: 0, mrc: 1}
         for module in (mrr, mrc):
             with open(module.__file__, encoding="utf-8") as fh:
                 source = fh.read()
             tree = ast.parse(source)
-            called = {
-                n.func.attr
-                for n in ast.walk(tree)
-                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-            }
-            called |= {
-                n.func.id
-                for n in ast.walk(tree)
-                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-            }
-            self.assertEqual(called & banned, set(), module.__name__)
+            calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+            names = [c.func.attr for c in calls if isinstance(c.func, ast.Attribute)]
+            names += [c.func.id for c in calls if isinstance(c.func, ast.Name)]
+            os_replaces = [
+                c for c in calls
+                if isinstance(c.func, ast.Attribute) and c.func.attr == "replace"
+                and isinstance(c.func.value, ast.Name) and c.func.value.id == "os"
+            ]
+            self.assertEqual(len(os_replaces), allowed_os_replace[module], module.__name__)
+            self.assertEqual(names.count("replace"), allowed_os_replace[module], module.__name__)  # and no other replace of any kind
+            self.assertEqual(set(names) & (banned - {"replace"}), set(), module.__name__)
             self.assertNotIn("shell=True", source)
             imports = {
                 a.name.split(".")[0]
