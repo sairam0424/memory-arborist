@@ -1,8 +1,13 @@
 """Found by a third verification pass: the partial-promote record could itself fail (a full disk is the likeliest cause of both), and then the
-restore command was never shown; a marker left empty read as 'already promoted'; and the recorded reason of a partial promote said that
-nothing was replaced."""
+restore command was never shown; a marker left empty read as 'already promoted'; the recorded reason of a partial promote said that
+nothing was replaced; the marker was written after the lock was released, so a promote that lost a race could not see it; a closed
+output pipe on the PROMOTED line cost the marker; and a live note missing during preparation ended in a raw errno."""
 
+import argparse
+import builtins
+import contextlib
 import errno
+import io
 import json
 import os
 import sys
@@ -17,6 +22,7 @@ from test_memory_promote_edges import PromoteBase  # noqa: E402
 sys.path.insert(0, th.SCRIPTS)
 import memory_common as mc  # noqa: E402
 import memory_dream as dr  # noqa: E402
+import memory_registry as reg  # noqa: E402
 import memory_snapshot as sn  # noqa: E402
 
 
@@ -116,6 +122,88 @@ class PartialRecordTests(PromoteBase):
         self.assertEqual(code, 1)
         self.assertIn("cannot be read", err)
         self.assertIn("memory_hygiene.py", err)
+
+
+class RaceAndPipeTests(PromoteBase):
+    def test_the_marker_is_written_while_the_lock_is_still_held(self):
+        run = self.two_note_run()
+        digest = self.digest_of(run)
+        held, real = [], dr._write_marker
+
+        def watching(run_dir, data, name=dr.MARKER):
+            try:
+                with reg.ops_lock(self.ops):  # takes the lock only if nobody holds it
+                    held.append(False)
+            except mc.HygieneError:
+                held.append(True)
+            return real(run_dir, data, name)
+
+        with mock.patch.object(dr, "_write_marker", watching):
+            code, out, err = self.cli("promote", os.path.basename(run), "--apply", "--expect", digest)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(held, [True], "the marker was written after the lock was released: a promote that lost the race cannot see it")
+
+    def test_the_partial_marker_is_written_while_the_lock_is_still_held_too(self):
+        run = self.two_note_run()
+        digest = self.digest_of(run)
+        held, real = [], dr._write_marker
+
+        def watching(run_dir, data, name=dr.MARKER):
+            try:
+                with reg.ops_lock(self.ops):
+                    held.append(False)
+            except mc.HygieneError:
+                held.append(True)
+            return real(run_dir, data, name)
+
+        with mock.patch.object(dr, "_write_marker", watching):
+            code, out, err = self.with_swap(
+                2, lambda: self.cli("promote", os.path.basename(run), "--apply", "--expect", digest)
+            )
+        self.assertEqual(code, 1, out + err)
+        self.assertEqual(held, [True], "the partial marker was written after the lock was released")
+
+    def test_a_loser_built_from_a_stale_plan_records_nothing_and_says_the_winner_finished(self):
+        # a guard, not a reproduction of the race itself: it passed before the marker moved inside the lock, because the race needs two
+        # processes; it pins what the loser must say and leave behind once the winner's marker exists
+        run = self.two_note_run()
+        digest = self.digest_of(run)
+        snap, _accepted, touched, _digest = dr._promotion_plan(self.mem, self.ops, run)
+        code, out, err = self.cli("promote", os.path.basename(run), "--apply", "--expect", digest)
+        self.assertEqual(code, 0, out + err)
+        log_before = th.read(os.path.join(self.ops, "log.md"))
+        args = argparse.Namespace(run=os.path.basename(run), now=1_700_000_500)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer), self.assertRaises(mc.HygieneError):
+            dr._apply_promotion(args, self.mem, self.ops, run, snap, touched)
+        self.assertIn("another promote of this run finished first", buffer.getvalue())
+        self.assertEqual([n for n in os.listdir(run) if n.startswith("promote-failed")], [])
+        self.assertEqual(th.read(os.path.join(self.ops, "log.md")), log_before)
+
+    def test_a_live_note_that_vanishes_while_the_copies_are_prepared_is_a_message_not_a_raw_errno(self):
+        run = self.two_note_run()
+        rel = sorted(os.listdir(os.path.join(run, "memory")))[0]
+        os.remove(os.path.join(self.mem, rel))  # another promote has the note out of the way for a moment
+        with self.assertRaises(mc.HygieneError) as ctx:
+            dr._prepare_install(self.mem, self.ops, run, [rel], {})
+        self.assertIn(rel, str(ctx.exception))
+
+    def test_a_closed_output_pipe_on_the_promoted_line_does_not_cost_the_marker(self):
+        run = self.two_note_run()
+        digest = self.digest_of(run)
+        real_print = builtins.print
+
+        def flaky(*args, **kwargs):
+            if args and str(args[0]).startswith("PROMOTED") and kwargs.get("file") is None:
+                raise BrokenPipeError(errno.EPIPE, "Broken pipe")
+            return real_print(*args, **kwargs)
+
+        with mock.patch("builtins.print", flaky):
+            code, out, err = self.cli("promote", os.path.basename(run), "--apply", "--expect", digest)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(json.loads(th.read(os.path.join(run, dr.MARKER)))["status"], "promoted")
+        self.assertIn("PROMOTED 2 notes", err)  # the line goes to the error stream when the output stream is gone
+        self.assertNotIn("Traceback", out + err)
 
 
 class contextlib_exit_stack:  # noqa: N801 - a tiny with-statement over several mock patches

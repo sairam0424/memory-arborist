@@ -247,7 +247,14 @@ def _prepare_install(memory, ops, run_dir, touched, manifest):
         fd, tmp = tempfile.mkstemp(dir=install, prefix=".install-", suffix=".part")
         os.close(fd)
         shutil.copyfile(staged, tmp)
-        os.chmod(tmp, os.stat(os.path.join(memory, rel)).st_mode & 0o777)
+        try:
+            mode = os.stat(os.path.join(memory, rel)).st_mode & 0o777
+        except OSError as err:  # another promote of this run may have the note out of the way for a moment
+            raise mc.HygieneError(
+                "%s cannot be read (%s); another promote of this run may be replacing it: check the notes and `memory_hygiene.py snapshots` "
+                "before trying again" % (mc.printable(rel), mc.clean_line(err.strerror or type(err).__name__, 60))
+            )
+        os.chmod(tmp, mode)
         if mc.sha256_file(tmp) != mc.sha256_file(staged):
             raise mc.HygieneError(
                 "the copy of %s failed its checksum" % mc.printable(rel)
@@ -307,6 +314,14 @@ def _run_dir_of(ops, run_id):
     return run_dir
 
 
+def _say(line):
+    """Print `line`; with the output stream gone (a closed pipe) it goes to the error stream, so the way back is never lost."""
+    try:
+        print(line)
+    except OSError:
+        print(line, file=sys.stderr)
+
+
 def _record_partial(ops, run_dir, run_id, err, pre):
     if not err.done and os.path.lexists(os.path.join(run_dir, MARKER)):
         # another promote of this run finished while this one failed: it is not "promotable again", and nothing more is recorded
@@ -321,7 +336,7 @@ def _record_partial(ops, run_dir, run_id, err, pre):
     }
     undo = "`memory_hygiene.py restore --snapshot %s --file <note> --apply --force`" % pre["id"]
     if err.done:  # first: the way back is on screen whatever happens to the marker or the log
-        print(
+        _say(
             "PARTIAL replaced %s; the old copies are in %s; pre-promote snapshot %s. To undo, restore each of those notes with %s"
             % (", ".join(map(mc.printable, err.done)), err.archive_dir, pre["id"], undo)
         )
@@ -343,7 +358,7 @@ def _record_partial(ops, run_dir, run_id, err, pre):
 
 
 def _record_promoted(ops, run_dir, run_id, done, pre, snap, archive_dir):
-    print(  # first: the way back is on screen whatever happens to the marker or the log
+    _say(  # first: the way back is on screen whatever happens to the marker or the log
         "PROMOTED %d notes; pre-promote snapshot %s; old copies in %s"
         % (len(done), pre["id"], archive_dir)
     )
@@ -371,15 +386,15 @@ def _apply_promotion(args, memory, ops, run_dir, snap, touched):
     manifest = sn.load_manifest(ops, snap)
     prepared = _prepare_install(memory, ops, run_dir, touched, manifest)
     pre = sn.take_snapshot(memory, ops, now=args.now)
-    try:
-        with reg.ops_lock(ops):
+    with reg.ops_lock(ops):  # both records are written before the lock is released: a promote that lost the race sees the marker
+        try:
             done, archive_dir = _install(
                 memory, ops, run_dir, prepared, manifest, args.now
             )
-    except _Partial as err:
-        _record_partial(ops, run_dir, args.run, err, pre)
-        raise
-    _record_promoted(ops, run_dir, args.run, done, pre, snap, archive_dir)
+        except _Partial as err:
+            _record_partial(ops, run_dir, args.run, err, pre)
+            raise
+        _record_promoted(ops, run_dir, args.run, done, pre, snap, archive_dir)
 
 
 def cmd_promote(args):
