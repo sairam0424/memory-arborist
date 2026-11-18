@@ -8,7 +8,7 @@ Thanks for helping. Three rules matter most.
 
 ## Style
 
-Standard library only. Functions under 60 lines and every `engine/memory_*.py` script under 500 lines (a test enforces both; aim for about 50 and keep other files under about 800), early returns, no dead code, errors handled where they happen and never swallowed silently. Anything that quotes user text goes through the existing safe-snippet helpers, and anything that writes goes through the existing private-file helpers.
+Standard library only. Functions under 60 lines and every `engine/memory_*.py` script under 500 lines (a test enforces both for the scripts directly in `engine/`; the scripts in `engine/dream`, `engine/recall` and `engine/doctor` are not covered by it, so hold them to the same functions, aim for about 50 and keep them under about 800), early returns, no dead code, errors handled where they happen and never swallowed silently. Anything that quotes user text goes through the existing safe-snippet helpers, and anything that writes goes through the existing private-file helpers.
 
 ## Mutation checks
 

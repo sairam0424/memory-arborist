@@ -555,7 +555,7 @@ def question_problem(text):
     return "line %s: %s" % (number, found)
 
 
-QUESTIONS_FIX = "the question wizard proposes a set from your notes (about 1 USD); see Preconditions in the skill, or run recall/memory_recall_wizard.py propose after a snapshot"
+QUESTIONS_FIX = "the question wizard proposes a set from your notes (about 1 USD); see 'Before step 3' in the skill, or run recall/memory_recall_wizard.py propose after a snapshot"
 
 
 def _questions_state(ops):
