@@ -2,7 +2,8 @@
 
 usage: python3 -I harness_dream.py [G01 S02 ...]     (no arguments = every mutant; takes several minutes)
 Prints one line per mutant: killed, SURVIVED, or MISSING-SNIPPET (the pattern no longer matches the reflowed source).
-Last full result (2026-11-17): all 77 mutants killed (U02 was re-pointed at the verifier stage after it started counting unusable verdicts).
+Every mutant must be killed. A MISSING-SNIPPET line means the pattern no longer matches the source, so that mutant has silently stopped
+running: fix the pattern (two had, unnoticed, until 2026-11-18). The unmutated copy must pass every suite named in EXTRA_SUITES first.
 """
 
 import os
@@ -198,6 +199,8 @@ M = [
     ("P15 promoted marker written after the lock is released", P, r"\n        _record_promoted\(ops, run_dir, args\.run, done, pre, snap, archive_dir\)", "\n    _record_promoted(ops, run_dir, args.run, done, pre, snap, archive_dir)"),
     ("P16 vanished live note is a raw errno", P, r"        except OSError as err:  # another promote of this run may have the note out of the way for a moment", "        except ZeroDivisionError as err:  # another promote of this run may have the note out of the way for a moment"),
     ("P17 closed output stream loses the way back", P, r"    except OSError:\n        print\(line, file=sys\.stderr\)", "    except ZeroDivisionError:\n        print(line, file=sys.stderr)"),
+    ("P18 the way back is not flushed", P, r"        sys\.stdout\.flush\(\)\n", "        pass\n"),
+    ("P19 replacing printed before the lock is taken", P, r"    _apply_promotion\(args, memory, ops, run_dir, snap, touched\)\n    return EXIT_OK", '    for rel in touched:\n        print("replacing %s" % rel)\n    _apply_promotion(args, memory, ops, run_dir, snap, touched)\n    return EXIT_OK'),
     ("P12 unreadable marker counts as promoted", S, r'    if status == "promoted":\n        return "this run was already promoted"\n    if status != "partial":', '    if status != "partial":\n        return "this run was already promoted"\n    if False:'),
     ("P13 marker write failure not caught", P, r"    except OSError as oserr:\n        cause =", "    except ZeroDivisionError as oserr:\n        cause ="),
     ("P14 log write failure not caught", S, r"    except OSError as err:\n        print\(\n            \"NOTE: the log entry", "    except ZeroDivisionError as err:\n        print(\n            \"NOTE: the log entry"),
@@ -271,6 +274,9 @@ M = [
     ("R03 recall refusal exits as generic failure", "recall/memory_recall.py", r"except eg\.SecretShapesRefused as err:", "except ZeroDivisionError as err:"),
     ("K01 counts take digits of other scripts", "memory_common.py", r"int\(text\) if text\.isascii\(\) and text\.isdigit\(\) else 0", "int(text) if text.isdigit() else 0"),
     ("K02 a very long digit string crashes (Python 3.11 and later)", "memory_common.py", r"    except ValueError:  # more digits than int\(\) will read\n        value = 0", "    except ZeroDivisionError:  # more digits than int() will read\n        value = 0"),
+    ("R08 save preflight accepts a named pipe", "recall/memory_recall.py", r"    if os\.path\.exists\(real\) and not os\.path\.isfile\(real\):", "    if False:"),
+    ("R09 empty save path skips the preflight", "recall/memory_recall.py", r'    elif arm == "baseline":  # an empty string', '    elif arm == "baseline" and save:  # an empty string'),
+    ("R10 missing save path is not noted", "recall/memory_recall.py", r'        print\("NOTE: no --save FILE:[^\n]*\n', "        pass\n"),
     ("R04 save preflight ignores links", "recall/memory_recall.py", r"real = os\.path\.realpath\(target\)", "real = target"),
     ("R05 save preflight ignores a locked file", "recall/memory_recall.py", r'return None if os\.access\(real, os\.W_OK\) else "the file cannot be written[^\n]*', "return None"),
     ("R06 late save failure not caught", "recall/memory_recall.py", r"    except OSError as err:  # the preflight catches", "    except ZeroDivisionError as err:  # the preflight catches"),
@@ -347,16 +353,16 @@ def run_tests(fname=None):
         ],
     ]
     for cmd in cmds:
-        if (
-            subprocess.run(cmd, capture_output=True, text=True, timeout=600).returncode
-            != 0
-        ):
+        try:
+            if subprocess.run(cmd, capture_output=True, text=True, timeout=600).returncode != 0:
+                return True
+        except subprocess.TimeoutExpired:  # a mutant that makes a test wait for ever is caught too
             return True
     return False
 
 
 # A red unmutated copy would make every mutant look killed.
-if run_tests("memory_scan.py") or run_tests("memory_egress.py") or run_tests("recall/memory_recall_run.py"):
+if any(run_tests(name) for name in sorted({"memory_scan.py", "memory_egress.py", "recall/memory_recall_run.py", *EXTRA_SUITES})):
     print("BASELINE RED: the unmutated copy fails its own tests; fix that before reading any mutant result", flush=True)
     sys.exit(2)
 
