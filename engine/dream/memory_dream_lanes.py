@@ -235,7 +235,11 @@ def verifier_prompt(hunk, evidence_lines, note_text, note_date=None):
 
 def ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd=None):
     """One answer, or an error. The child must report an empty tool list or the whole run aborts."""
-    spend.check()
+    with spend.call(settings.per_q_usd):
+        return _ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd)
+
+
+def _ask_lane(prompt, system_prompt_file, settings, runner, spend, cwd):
     cwd = cwd or os.path.dirname(system_prompt_file)
     try:
         code, stdout, stderr = runner(

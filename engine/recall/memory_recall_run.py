@@ -10,6 +10,7 @@ excerpt of each answer are kept.
 import hashlib
 import math
 import argparse
+import contextlib
 import io
 import json
 import os
@@ -77,18 +78,37 @@ class Spend:
 
     def __init__(self, limit):
         self.limit, self.total, self.stopped = limit, 0.0, None
+        self.reserved = 0.0  # the caps of the calls that are running now: they count as spent for a call that wants to start
         self._lock = threading.Lock()
 
     def check(self):
         with self._lock:
-            if self.stopped:
-                raise RunAborted(self.stopped)
-            if self.total >= self.limit:
-                self.stopped = "cost ceiling reached (%.4f of %s USD)" % (
-                    self.total,
-                    self.limit,
-                )
-                raise CostCeiling(self.stopped)
+            self._refuse_if_over()
+
+    def _refuse_if_over(self):
+        if self.stopped:
+            raise RunAborted(self.stopped)
+        if self.total + self.reserved >= self.limit:
+            self.stopped = "cost ceiling reached (%.4f of %s USD%s)" % (
+                self.total,
+                self.limit,
+                ", with %.4f held by calls still running" % self.reserved if self.reserved else "",
+            )
+            raise CostCeiling(self.stopped)
+
+    @contextlib.contextmanager
+    def call(self, cap):
+        """One model call. It starts only if what has been spent plus the caps of the calls already running is still under the ceiling, and
+        it holds its own cap until it ends, however it ends. So N workers cannot all start on the last of the money: the ceiling can be
+        passed by less than one call's cap, not by one cap per worker."""
+        with self._lock:
+            self._refuse_if_over()
+            self.reserved += cap
+        try:
+            yield
+        finally:
+            with self._lock:
+                self.reserved -= cap
 
     def add(self, cost):
         with self._lock:
@@ -386,7 +406,11 @@ def _excerpt(text):
 
 def ask(question, runner, settings, prompt_file, memory_dir, spend, cwd=None):
     """One graded record: {id, pass, forbid_hit, cost, sha, excerpt} or {id, error, cost}."""
-    spend.check()
+    with spend.call(settings.per_q_usd):
+        return _ask(question, runner, settings, prompt_file, memory_dir, spend, cwd)
+
+
+def _ask(question, runner, settings, prompt_file, memory_dir, spend, cwd):
     cwd = cwd or tempfile.mkdtemp(prefix="recall_cwd_")
     argv = build_argv(
         question["question"],
