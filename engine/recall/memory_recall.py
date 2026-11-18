@@ -297,21 +297,30 @@ def finish_baseline(args, questions, results, labels, spend, ops):
 def _save_baseline(save, data):
     """Write the baseline next to its place and move it over (an atomic replace on one filesystem): a write that fails leaves the previous
     file as it was. The temporary file is private (0600), exclusive and has an unpredictable name; the path is resolved once, so a link
-    stays a link and the file it leads to is replaced; nothing is ever deleted: a failed attempt names its partial copy."""
+    stays a link and the file it leads to is replaced (it is a NEW file: its mode becomes 0600 and a second hard link to the old one keeps
+    the old content); nothing is ever deleted: a failed attempt names the copy it left."""
     target = os.path.realpath(mc.expand(save))
-    partial = None
+    partial, written = None, False
     try:
         fd, partial = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".baseline-", suffix=".part")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, indent=1, sort_keys=True)
             fh.flush()
             os.fsync(fh.fileno())
+        written = True
         os.replace(partial, target)
     except OSError as err:  # the preflight catches the usual causes; a full disk or a change of mind in between ends here
-        left = "; the partial copy %s is safe to remove by hand (this tool never deletes)" % mc.printable(partial) if partial else ""
+        why = mc.clean_line(err.strerror or type(err).__name__, 80)
+        if written:  # the copy is the whole result of a paid run: the person is told to move it, not to remove it
+            raise mc.HygieneError(
+                "the baseline could not be moved into place at %s (%s); the complete result of this run (it cost %.4f USD) is in %s: move it "
+                "over that path yourself to keep it (this tool never moves or deletes files for you); any previous file at that path is untouched"
+                % (mc.printable(save), why, data["total_usd"], mc.printable(partial))
+            )
+        left = "; the partial copy %s is incomplete and safe to remove by hand (this tool never deletes)" % mc.printable(partial) if partial else ""
         raise mc.HygieneError(
-            "the baseline could not be saved to %s (%s); this run's results were not kept and it cost %.4f USD; a previous file is untouched%s: "
-            "fix that and run it again" % (mc.printable(save), mc.clean_line(err.strerror or type(err).__name__, 80), data["total_usd"], left)
+            "the baseline could not be saved to %s (%s); this run's results were not kept and it cost %.4f USD; any previous file at that path is "
+            "untouched%s: fix that and run it again" % (mc.printable(save), why, data["total_usd"], left)
         )
     print("BASELINE saved " + target)
 
@@ -464,17 +473,25 @@ def read_baseline(path):
     return data
 
 
+SAVE_NAME_LIMIT = 200  # the new file is first written as .baseline-XXXXXXXX.part next to it: leave room under the 255-byte name limit
+
+
 def _save_problem(target):
-    """Why a baseline cannot be written to `target`, found without creating anything; None when the write should work."""
+    """Why a baseline cannot be written to `target`, found without creating anything; None when the write should work. The write makes a
+    new file next to the old one and moves it over, so the folder has to take a new file and the name has to leave room for a longer one."""
     real = os.path.realpath(target)  # the write follows a link, so judge the place it leads to
+    folder = os.path.dirname(real)
     if os.path.isdir(real):
         return "the path is a folder"
     if os.path.exists(real) and not os.path.isfile(real):  # a named pipe waits for a reader for ever, after the paid calls
         return "the path is not a regular file"
-    if os.path.lexists(real):
-        return None if os.access(real, os.W_OK) else "the file cannot be written (or a link on the way cannot be followed)"
-    folder = os.path.dirname(real)
-    return None if os.path.isdir(folder) and os.access(folder, os.W_OK) else "its folder must exist and be writable"
+    if len(os.fsencode(os.path.basename(real))) > SAVE_NAME_LIMIT:
+        return "the file name is too long (the new file is first written under a longer name next to it)"
+    if not (os.path.isdir(folder) and os.access(folder, os.W_OK | os.X_OK)):
+        return "its folder must exist and be writable and searchable (the new file is written next to the old one and moved over it)"
+    if os.path.lexists(real) and not os.access(real, os.W_OK):
+        return "the file cannot be written (or a link on the way cannot be followed)"
+    return None
 
 
 def _check_before_spending(args):

@@ -131,10 +131,42 @@ class SavePreflightTests(TempRoot):
         self.assertNotIn("Traceback", out + err)
         self.assertIn("could not be saved", err)
         self.assertIn("No space left on device", err)
-        self.assertIn("previous file is untouched", err)
+        self.assertIn("previous file at that path is untouched", err)
         self.assertIn(".baseline-", err)  # the partial copy is named: this tool never deletes
+        self.assertIn("incomplete", err)  # the write itself failed: that copy is NOT a usable baseline
         with open(save, encoding="utf-8") as fh:
             self.assertEqual(fh.read(), '{"old": "baseline"}')
+
+    def test_a_folder_that_cannot_take_the_new_file_is_refused_even_when_the_old_file_is_writable(self):
+        if os.geteuid() == 0:
+            self.skipTest("root can write anywhere")
+        folder = os.path.join(self.scratch, "readonly")
+        os.mkdir(folder)
+        save = os.path.join(folder, "b.json")
+        with open(save, "w", encoding="utf-8") as fh:
+            fh.write("{}")
+        os.chmod(folder, stat.S_IRUSR | stat.S_IXUSR)  # the file may be written, the folder may not: the new file is made next to it
+        self.addCleanup(os.chmod, folder, stat.S_IRWXU)
+        self.refused(save)
+        os.chmod(folder, stat.S_IRUSR | stat.S_IWUSR)  # writable but not searchable
+        self.refused(os.path.join(folder, "new.json"))
+
+    def test_a_file_name_too_long_for_its_partial_copy_is_refused_before_the_first_paid_call(self):
+        self.refused(os.path.join(self.scratch, "n" * 240 + ".json"))
+
+    def test_the_new_file_is_flushed_before_it_is_synced(self):
+        save = os.path.join(self.scratch, "synced.json")
+        sizes, real_fsync = [], os.fsync
+
+        def sync(fd):
+            sizes.append(os.fstat(fd).st_size)  # what is on disk when the sync is asked for
+            return real_fsync(fd)
+
+        with mock.patch.object(mrc.os, "fsync", sync):
+            code, out, err = self.baseline_run(save, MemoryReadingRunner())
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(len(sizes), 1)
+        self.assertGreater(sizes[0], 100, "the sync was asked for before the data left the write buffer")
 
     def test_a_failed_move_leaves_the_previous_baseline_too(self):
         save = os.path.join(self.scratch, "move.json")
@@ -143,7 +175,13 @@ class SavePreflightTests(TempRoot):
         with mock.patch.object(mrc.os, "replace", side_effect=OSError(errno.EXDEV, "Invalid cross-device link")):
             code, out, err = self.baseline_run(save, MemoryReadingRunner())
         self.assertEqual(code, 1, out + err)
-        self.assertIn("could not be saved", err)
+        self.assertIn("could not be moved into place", err)
+        self.assertIn("complete", err)  # the copy is the whole result of a paid run: the person is told to move it, not to remove it
+        self.assertIn("move it", err)
+        self.assertNotIn("safe to remove", err)
+        kept = [n for n in os.listdir(self.scratch) if n.startswith(".baseline-")]
+        self.assertEqual(len(kept), 1)
+        self.assertIn(kept[0], err)
         with open(save, encoding="utf-8") as fh:
             self.assertEqual(fh.read(), '{"old": "baseline"}')
 

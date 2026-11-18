@@ -621,24 +621,41 @@ class SafetyTests(TempRoot):
             "removedirs",
         }
         # Changed on the owner's decision (2026-11-18): this test used to ban every replace. The judge's saved baseline is now written
-        # next to its place and moved over it, so that a failed write cannot cut an older baseline short: exactly one os.replace in the
-        # judge, none in the run module, and every other banned call stays banned.
+        # next to its place and moved over it, so that a failed write cannot cut an older baseline short: exactly one os.replace, in
+        # _save_baseline, none in the run module. It is a static tripwire, not a sandbox (a subprocess call can still do anything); it
+        # looks at every REFERENCE to a banned name (so an alias or map(os.replace, ...) is seen), at imports, at getattr on os and at
+        # opens that write.
+        banned_refs = banned | {"move", "copy", "copy2", "copyfile", "link", "symlink", "truncate", "execv", "execve", "execl", "execvp", "chmod", "chown", "mkfifo"}
         allowed_os_replace = {mrr: 0, mrc: 1}
         for module in (mrr, mrc):
             with open(module.__file__, encoding="utf-8") as fh:
                 source = fh.read()
             tree = ast.parse(source)
-            calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
-            names = [c.func.attr for c in calls if isinstance(c.func, ast.Attribute)]
-            names += [c.func.id for c in calls if isinstance(c.func, ast.Name)]
-            os_replaces = [
-                c for c in calls
-                if isinstance(c.func, ast.Attribute) and c.func.attr == "replace"
-                and isinstance(c.func.value, ast.Name) and c.func.value.id == "os"
-            ]
-            self.assertEqual(len(os_replaces), allowed_os_replace[module], module.__name__)
-            self.assertEqual(names.count("replace"), allowed_os_replace[module], module.__name__)  # and no other replace of any kind
-            self.assertEqual(set(names) & (banned - {"replace"}), set(), module.__name__)
+            nodes = list(ast.walk(tree))
+            refs = [n.attr if isinstance(n, ast.Attribute) else n.id for n in nodes if isinstance(n, (ast.Attribute, ast.Name))]
+            self.assertEqual(refs.count("replace"), allowed_os_replace[module], module.__name__)  # no other replace of any kind, called or not
+
+            def is_os_replace(n):
+                return isinstance(n, ast.Attribute) and n.attr == "replace" and isinstance(n.value, ast.Name) and n.value.id == "os"
+
+            owners = {fn.name for fn in nodes if isinstance(fn, ast.FunctionDef) for n in ast.walk(fn) if is_os_replace(n)}
+            self.assertEqual(owners, {"_save_baseline"} if allowed_os_replace[module] else set(), module.__name__)
+            self.assertEqual(set(refs) & (banned_refs - {"replace"}), set(), module.__name__)
+            from_imported = {a.name for n in nodes if isinstance(n, ast.ImportFrom) for a in n.names}
+            self.assertEqual(from_imported & banned_refs, set(), module.__name__)
+            self.assertEqual(
+                [n for n in nodes if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("__import__", "eval", "exec")], [], module.__name__
+            )
+            self.assertEqual(
+                [n for n in nodes if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "getattr" and n.args
+                 and isinstance(n.args[0], ast.Name) and n.args[0].id in ("os", "shutil")],
+                [], module.__name__,
+            )
+            for call in (n for n in nodes if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "open"):
+                mode = call.args[1] if len(call.args) > 1 else next((k.value for k in call.keywords if k.arg == "mode"), None)
+                self.assertTrue(
+                    mode is None or (isinstance(mode, ast.Constant) and mode.value in ("r", "rb", "rt")), "%s opens a file for writing" % module.__name__
+                )
             self.assertNotIn("shell=True", source)
             imports = {
                 a.name.split(".")[0]
@@ -652,7 +669,7 @@ class SafetyTests(TempRoot):
                 if isinstance(n, ast.ImportFrom) and n.module
             }
             self.assertEqual(
-                imports & {"socket", "urllib", "http", "requests", "ssl"},
+                imports & {"socket", "urllib", "http", "requests", "ssl", "shutil", "pathlib"},
                 set(),
                 module.__name__,
             )
