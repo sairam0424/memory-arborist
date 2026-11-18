@@ -65,21 +65,17 @@ class UnambiguousTests(unittest.TestCase):
         )
         self.assertIsNone(self.pick('{"verdict": "keep"} and {"verdict": "reject"}'))
 
-    def test_the_same_object_twice_or_one_object_with_chatter_is_usable(self):
-        self.assertEqual(
-            self.pick('{"verdict": "reject"} again {"verdict": "reject"}'),
-            {"verdict": "reject"},
-        )
-        self.assertEqual(
-            self.pick('Here is my answer: {"verdict": "reject", "why": "x"} Done.'),
-            {"verdict": "reject", "why": "x"},
-        )
+    def test_the_same_object_twice_or_one_object_with_chatter_is_no_longer_usable(self):
+        # changed on the owner's decision (2026-11-18): the verifier's answer must be the whole reply, because an object found in prose
+        # cannot be told from a line quoted out of an untrusted note; this test used to expect both of these to be usable
+        self.assertIsNone(self.pick('{"verdict": "reject"} again {"verdict": "reject"}'))
+        self.assertIsNone(self.pick('Here is my answer: {"verdict": "reject", "why": "x"} Done.'))
+        self.assertEqual(self.pick('{"verdict": "reject", "why": "x"}'), {"verdict": "reject", "why": "x"})
 
     def test_a_trailing_list_does_not_replace_the_answer(self):
-        self.assertEqual(
-            self.pick('```json\n{"verdict": "reject"}\n```\nSee also [1].'),
-            {"verdict": "reject"},
-        )
+        self.assertEqual(self.pick('```json\n{"verdict": "reject"}\n```'), {"verdict": "reject"})
+        # with prose after the fence the reply is no longer the answer alone (it used to be accepted); never the list either
+        self.assertIsNone(self.pick('```json\n{"verdict": "reject"}\n```\nSee also [1].'))
 
     def test_a_clean_reply_and_an_empty_reply_behave_as_before(self):
         self.assertEqual(self.pick('{"verdict": "keep"}'), {"verdict": "keep"})

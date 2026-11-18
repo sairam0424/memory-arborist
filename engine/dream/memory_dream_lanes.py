@@ -107,20 +107,20 @@ def _json_values(body):
 
 def extract_json(text, unambiguous=False):
     """The JSON a reply holds: the whole reply if it parses, else the LAST JSON value in the chatter (a model that quotes data
-    before answering must not let the quoted data win). With `unambiguous` (the verifier, the only model gate), a reply that holds
-    two different JSON objects is unusable, because a quoted line from an untrusted note could otherwise turn a rejection into a
-    keep. Bounded work; None when nothing usable parses."""
-    body = _unfence(text.strip()[:MAX_REPLY_CHARS])
+    before answering must not let the quoted data win). With `unambiguous` (the verifier, the only model gate) the answer must BE the
+    reply: one JSON object, alone or inside one surrounding code fence, and a reply longer than the cap is unusable rather than cut.
+    An object found inside prose cannot be told from a line quoted out of an untrusted note, which could turn a rejection into a keep.
+    Bounded work; None when nothing usable parses."""
+    text = text.strip()
+    if unambiguous and len(text) > MAX_REPLY_CHARS:
+        return None
+    body = _unfence(text[:MAX_REPLY_CHARS])
     try:
-        return json.loads(body)
+        whole = json.loads(body)
     except (ValueError, RecursionError):
-        pass
-    values = _json_values(body)
-    if not unambiguous:
+        values = [] if unambiguous else _json_values(body)
         return values[-1] if values else None
-    objects = [v for v in values if isinstance(v, dict)]
-    # exactly one distinct object means every object equals the first (equality is transitive): one pass, not a pairwise search
-    return objects[0] if objects and all(o == objects[0] for o in objects) else None
+    return whole if not unambiguous or isinstance(whole, dict) else None
 
 
 def fence_token(*texts):
