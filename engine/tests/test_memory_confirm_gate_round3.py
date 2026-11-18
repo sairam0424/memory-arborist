@@ -166,6 +166,15 @@ class RoundThreeTests(unittest.TestCase):
     def test_a_comment_or_a_backslash_inside_a_frame_is_read_as_the_shell_reads_it(self):
         self.assert_quiet(QUIET_INSIDE_FRAMES)
 
+    def test_the_name_patterns_stay_linear_on_a_long_run_of_name_starts(self):
+        import time
+
+        for padding in ("memory_" * 8000 + "9", "memory_a_" * 6000 + "9", "memory_dream" * 5000 + "9", "memory_hygiene" * 4000 + "x"):
+            with self.subTest(padding[:12]):
+                started = time.monotonic()
+                self.assertIn("ask", gate.decision(payload(padding + "\npython3 memory_dream.py promote RUN --apply")))
+                self.assertLess(time.monotonic() - started, 3.0)  # linear: well under a second; the first version took 5 s at 40 KB
+
     def test_the_patterns_stay_linear_on_text_built_to_make_them_search(self):
         import time
 

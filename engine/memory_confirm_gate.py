@@ -34,7 +34,7 @@ REASON = (
 CONTINUATION = re.compile(r"\\\r?\n")  # a backslash at the end of a line continues the command
 SEPARATORS = "|;&\n"
 # The file or the module name (python3 -m memory_dream_run), in any case, and glued to a flag (-mmemory_dream) too.
-SCRIPT = re.compile(r"memory_[a-z_]+(?:\.py)?\b", re.I)
+SCRIPT = re.compile(r"memory_[a-z]", re.I)  # no tail to match: one that can fail is scanned again from every start in a run of `memory_`
 DREAM, HYGIENE = re.compile(r"memory_dream(?:\.py)?\b", re.I), re.compile(r"memory_hygiene(?:\.py)?\b", re.I)
 # `python3 -` (also `-W ignore -`, `/dev/stdin`, a process substitution) runs a script that python reads from stdin, which can come from
 # a pipe in another segment: the arguments must decide. Any lone `-` or device file after `python` counts (a spurious ask at worst).
