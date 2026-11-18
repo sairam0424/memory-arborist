@@ -3,7 +3,7 @@
 usage: python3 -I harness_dream.py [G01 S02 ...]     (no arguments = every mutant; takes several minutes)
 Prints one line per mutant: killed, SURVIVED, or MISSING-SNIPPET (the pattern no longer matches the reflowed source).
 Every mutant must be killed. A MISSING-SNIPPET line means the pattern no longer matches the source, so that mutant has silently stopped
-running: fix the pattern (two had, unnoticed, until 2026-11-18). The unmutated copy must pass every suite named in EXTRA_SUITES first.
+running: fix the pattern (two had, unnoticed, until 2026-11-18). The unmutated copy must pass every suite named in EXTRA_SUITES first. No mutant is documented as equivalent.
 """
 
 import os
@@ -201,19 +201,22 @@ M = [
     ("P17 closed output stream loses the way back", P, r"    except OSError:\n        print\(line, file=sys\.stderr\)", "    except ZeroDivisionError:\n        print(line, file=sys.stderr)"),
     ("P18 the way back is not flushed", P, r"        sys\.stdout\.flush\(\)\n", "        pass\n"),
     ("P19 replacing printed before the lock is taken", P, r"    _apply_promotion\(args, memory, ops, run_dir, snap, touched\)\n    return EXIT_OK", '    for rel in touched:\n        print("replacing %s" % rel)\n    _apply_promotion(args, memory, ops, run_dir, snap, touched)\n    return EXIT_OK'),
-    ("I01 signals not deferred around a note's swap", P, r"            with ds\.deferred_signals\(\):  # an interrupt waits", "            if True:  # an interrupt waits"),
-    ("I02 SIGTERM and SIGHUP not turned into an interrupt", P, r"with ds\.interrupts_as_keyboard\(\), reg\.ops_lock\(ops\):", "with reg.ops_lock(ops):"),
-    ("I03 an interrupt is not recorded as a partial promote", P, r"        except KeyboardInterrupt:  # Ctrl-C, or SIGTERM", "        except ZeroDivisionError:  # Ctrl-C, or SIGTERM"),
-    ("I04 an interrupt on the last note is called partial", P, r"            if len\(done\) == len\(prepared\):  # it landed", "            if False:  # it landed"),
+    ("I01 signals not held while the promote replaces and records", P, r"with reg\.ops_lock\(ops\), ds\.held_signals\(\):", "with reg.ops_lock(ops):"),
+    ("I02 a signal that arrived is not looked for between notes", P, r"        if ds\.interrupt_pending\(\):", "        if False:"),
+    ("I03 held signals are delivered at the end instead of consumed", S, r"            signal\.sigwait\(arrived\)\n", "            break\n"),
+    ("I04 a signal the parent ignored is held and counted", S, r"if signal\.getsignal\(sig\) is not signal\.SIG_IGN", "if True"),
     ("I05 main lets an interrupt through", P, r"    except KeyboardInterrupt:  # outside the part", "    except ZeroDivisionError:  # outside the part"),
+    ("I06 a dead error stream makes the record fail", S, r"        sys\.stderr\.flush\(\)\n    except OSError:\n        pass\n", "        sys.stderr.flush()\n    except ZeroDivisionError:\n        pass\n"),
+    ("I07 the signal mask is not restored", S, r"        mask\(signal\.SIG_SETMASK, old\)", "        pass"),
+    ("I08 a closed output stream is not tried on the error stream", S, r"    except OSError:\n        pass\n    say_err\(line\)", "    except OSError:\n        pass\n    pass"),
     ("P12 unreadable marker counts as promoted", S, r'    if status == "promoted":\n        return "this run was already promoted"\n    if status != "partial":', '    if status != "partial":\n        return "this run was already promoted"\n    if False:'),
     ("P13 marker write failure not caught", P, r"    except OSError as oserr:\n        cause =", "    except ZeroDivisionError as oserr:\n        cause ="),
     ("P14 log write failure not caught", S, r"    except OSError as err:\n        print\(\n            \"NOTE: the log entry", "    except ZeroDivisionError as err:\n        print(\n            \"NOTE: the log entry"),
     (
         "P05 live sha recheck off",
         P,
-        r"if mc\.sha256_file\(live\) != manifest\[\"files\"\]\[rel\]\[\"sha256\"\]:\n                    raise _Partial",
-        "if False:\n                    raise _Partial",
+        r"if mc\.sha256_file\(live\) != manifest\[\"files\"\]\[rel\]\[\"sha256\"\]:\n                raise _Partial",
+        "if False:\n                raise _Partial",
     ),
     (
         "P06 unsafe name precheck off",
@@ -248,6 +251,8 @@ M = [
     ),
     ("L02 tools check off", L, r"if out\.tools != \[\]:", "if False:"),
     ("L03 the verifier accepts an object found in prose", L, r"values = \[\] if unambiguous else _json_values\(body\)", "values = _json_values(body)"),
+    ("L06 a verifier object may repeat a key", L, r"json\.loads\(body, object_pairs_hook=_no_repeated_keys\) if unambiguous else json\.loads\(body\)", "json.loads(body)"),
+    ("L07 a reply nested deeper than the limit is usable", L, r"    return found if _shallow\(found\) else None", "    return found"),
     ("L04 an over-long verifier reply is cut instead of refused", L, r"    if unambiguous and len\(text\) > MAX_REPLY_CHARS:", "    if False:"),
     ("L05 the verifier accepts an answer that is not an object", L, r"return whole if not unambiguous or isinstance\(whole, dict\) else None", "return whole"),
     (
@@ -286,6 +291,10 @@ M = [
     ("R11 saved baseline readable by others", "recall/memory_recall.py", r'        with os\.fdopen\(fd, "w", encoding="utf-8"\) as fh:\n            json\.dump\(data, fh, indent=1, sort_keys=True\)\n            fh\.flush', '        os.fchmod(fd, 0o644)\n        with os.fdopen(fd, "w", encoding="utf-8") as fh:\n            json.dump(data, fh, indent=1, sort_keys=True)\n            fh.flush'),
     ("R12 baseline not synced before it replaces the old one", "recall/memory_recall.py", r"            os\.fsync\(fh\.fileno\(\)\)\n", "            pass\n"),
     ("R13 a failed save loses the previous-file note", "recall/memory_recall.py", r"a previous file is untouched%s", "%s"),
+    ("R14 the new file is synced before it is flushed", "recall/memory_recall.py", r"            fh\.flush\(\)\n", "            pass\n"),
+    ("R15 a folder that is writable but not searchable passes", "recall/memory_recall.py", r"os\.W_OK \| os\.X_OK", "os.W_OK"),
+    ("R16 an over-long file name passes the preflight", "recall/memory_recall.py", r"    if len\(os\.fsencode\(os\.path\.basename\(real\)\)\) > SAVE_NAME_LIMIT:", "    if False:"),
+    ("R17 a failed move tells the person to remove the complete copy", "recall/memory_recall.py", r"        if written:  # the copy is the whole result", "        if False:  # the copy is the whole result"),
     ("R08 save preflight accepts a named pipe", "recall/memory_recall.py", r"    if os\.path\.exists\(real\) and not os\.path\.isfile\(real\):", "    if False:"),
     ("R09 empty save path skips the preflight", "recall/memory_recall.py", r'    elif arm == "baseline":  # an empty string', '    elif arm == "baseline" and save:  # an empty string'),
     ("R10 missing save path is not noted", "recall/memory_recall.py", r'        print\("NOTE: no --save FILE:[^\n]*\n', "        pass\n"),
@@ -324,9 +333,9 @@ M = [m for m in M if len(sys.argv) < 2 or m[0].split()[0] in sys.argv[1:]]
 # Mutants in these modules are also run against the tests that own them (the base set does not match those file names).
 EXTRA_SUITES = {
     "memory_common.py": [("tests", "test_memory_positive_int_strict.py")],
-    "dream/memory_dream_lanes.py": [("dream/tests", "test_dream_extract_json_round2.py")],
+    "dream/memory_dream_lanes.py": [("dream/tests", "test_dream_extract_json_round2.py"), ("dream/tests", "test_dream_extract_json_round3.py")],
     "memory_dream.py": [("tests", "test_memory_promote_round2.py"), ("tests", "test_memory_promote_interrupt.py")],
-    "memory_dream_stage.py": [("tests", "test_memory_promote_round2.py"), ("tests", "test_memory_promote_interrupt.py")],
+    "memory_dream_stage.py": [("tests", "test_memory_promote_round2.py"), ("tests", "test_memory_promote_interrupt.py"), ("tests", "test_memory_held_signals.py")],
     "memory_egress.py": [("tests", "test_memory_egress.py"), ("recall/tests", "test_memory_recall_egress.py")],
     "memory_scan.py": [("tests", "test_memory_scan.py"), ("tests", "test_memory_extra_scan_common.py")],
     "memory_lint.py": [("tests", "test_memory_lint.py"), ("tests", "test_memory_extra_lint.py")],
