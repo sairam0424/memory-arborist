@@ -39,6 +39,7 @@ DIGESTS_PER_LANE, MAX_NOTES, MAX_FINDINGS_PER_LANE = 6, 12, 5
 # verifier call, so an injected note or digest must not be able to turn one writer reply into a flood of them.
 MAX_HUNKS_PER_WRITER = 5
 EXIT_INCOMPLETE = 5
+EXIT_INTERRUPTED = 130  # Ctrl-C: the run was stopped
 INDEX_NAME = "MEMORY.md"
 NOTE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.md")
 PipelineResult = namedtuple("PipelineResult", "hunks stats trace")
@@ -387,7 +388,7 @@ def main(argv=None, runner=None):
         return eg.EXIT_SECRET_SHAPES
     except KeyboardInterrupt:
         print("INTERRUPTED: the run was stopped; model calls that were already running may still have been billed")
-        return 130
+        return EXIT_INTERRUPTED
     except (mc.HygieneError, OSError, ValueError) as err:
         print("ERROR: %s" % mc.printable(err), file=sys.stderr)
         return dr.EXIT_FAIL

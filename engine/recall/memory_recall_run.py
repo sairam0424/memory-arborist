@@ -75,9 +75,11 @@ class CostCeiling(RunAborted):
 
 
 def map_calls(workers, fn, items, spend):
-    """list(map(fn, items)) over a pool of threads that make paid calls. A pool's shutdown waits for every call still queued, so when the map
-    ends early (Ctrl-C, or an error in one worker) the spend counter is stopped FIRST: the queued calls then refuse before they launch,
-    and only the ones already running finish."""
+    """list(map(fn, items)) over a pool of threads that make paid calls. Executor.map already cancels the calls that have not started when it
+    raises, but a worker that HAS started and waits in the cost check would launch its paid call as soon as a running one ended. So when the
+    map ends early (Ctrl-C, or an error that reaches this thread) the spend counter is stopped FIRST: waiting workers refuse before they
+    launch, and only the calls already running finish. A worker's error reaches this thread in item order, so calls for later items can
+    launch until it does."""
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         try:
             return list(pool.map(fn, items))

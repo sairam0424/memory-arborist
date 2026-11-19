@@ -72,6 +72,8 @@ def run(root, runner, model, max_usd, workers=2):
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
         code = drun.main(argv, runner=runner)
+    if code == drun.EXIT_INTERRUPTED:  # a score for a run that was stopped would describe work that never finished
+        raise KeyboardInterrupt
     pipeline = next(
         (line for line in out.getvalue().splitlines() if line.startswith("PIPELINE ")),
         "",
@@ -143,7 +145,12 @@ def main(argv=None, runner=None):
         )
         print("Nothing was sent. Add --live to run it with your claude login.")
         return 0
-    result = run(root, runner or lanes.subprocess_runner, args.model, args.max_usd)
+    try:
+        result = run(root, runner or lanes.subprocess_runner, args.model, args.max_usd)
+    except KeyboardInterrupt:
+        print("INTERRUPTED: the run was stopped; model calls that were already running may still have been billed")
+        print("work folder: %s" % root)
+        return drun.EXIT_INTERRUPTED
     print(render(result))
     if result["exit"] == drun.EXIT_INCOMPLETE:
         print("INCOMPLETE: some model calls failed, so these numbers under-report what the lanes can do; fix the cause and run again")

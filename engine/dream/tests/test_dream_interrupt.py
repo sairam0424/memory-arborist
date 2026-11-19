@@ -71,6 +71,7 @@ class DreamInterruptTests(Base):
         text = out.getvalue() + err.getvalue()
         self.assertEqual(code, 130, text)
         self.assertIn("INTERRUPTED", text)
+        self.assertIn("may still have been billed", text)
         self.assertNotIn("Traceback", text)
 
 

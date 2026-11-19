@@ -19,6 +19,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import memory_common as mc  # noqa: E402
+import memory_dream_attempt as da  # noqa: E402
 import memory_dream_ground as dg  # noqa: E402
 import memory_dream_pin as dp  # noqa: E402
 import memory_dream_stage as ds  # noqa: E402
@@ -28,8 +29,8 @@ import memory_snapshot as sn  # noqa: E402
 EXIT_OK, EXIT_FAIL, EXIT_USAGE = 0, 1, 64
 RUN_ID = re.compile(r"[0-9]{8}T[0-9]{6}Z")
 SNAP_ID = re.compile(r"[0-9]{8}T[0-9]{6}Z(?:-[0-9]{2})?")
-MARKER = ds.PROMOTED_MARKER
-FAILED_MARKER = ds.FAILED_MARKER  # a promote that failed before it replaced any note: it does not use the run up
+MARKER = da.PROMOTED_MARKER
+FAILED_MARKER = da.FAILED_MARKER  # a promote that failed before it replaced any note: it does not use the run up
 DEFAULT_MAX_HUNKS = 10
 
 
@@ -218,7 +219,7 @@ def _promotion_plan(memory, ops, run_dir):
         raise mc.HygieneError(
             "the staged copy fails its checks: " + "; ".join(problems)
         )
-    ds.refuse_if_attempt_died(run_dir, memory, ops, manifest)  # a promote of this run that was killed halfway is explained here, not as "changed since the snapshot"
+    da.refuse_if_attempt_died(run_dir, memory, ops, manifest)  # a promote of this run that was killed halfway is explained here, not as "changed since the snapshot"
     touched = sorted({h["file"] for h in accepted})
     for rel in touched:
         live = os.path.join(memory, rel)
@@ -295,17 +296,11 @@ class _Partial(mc.HygieneError):
 
 def _write_marker(run_dir, data, name=MARKER):
     try:
-        fd = os.open(
-            os.path.join(run_dir, name),
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-            0o600,
-        )
+        da.write_marker_file(os.path.join(run_dir, name), data)
     except FileExistsError:
         raise mc.HygieneError(
             "another promote of this run finished first: check the notes and `memory_hygiene.py snapshots` before doing anything else"
         )
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump(data, fh)
 
 
 def _run_dir_of(ops, run_id):
@@ -382,7 +377,7 @@ def _apply_promotion(args, memory, ops, run_dir, snap, touched):
     prepared = _prepare_install(memory, ops, run_dir, touched, manifest)
     pre = sn.take_snapshot(memory, ops, now=args.now)
     with reg.ops_lock(ops), ds.held_signals():  # records are written before the lock is released (a loser sees the marker) and before a signal lands
-        ds.begin_attempt(run_dir, memory, manifest, touched, pre["id"])  # before any note moves: a kill after this point leaves a trace the next promote can read
+        da.begin_attempt(run_dir, memory, manifest, touched, pre["id"])  # before any note moves: a kill after this point leaves a trace the next promote can read
         for rel in touched:  # only now: a promote refused for any reason before this point must not claim it is replacing anything
             ds.say("replacing %s (the old copy is archived first)" % mc.printable(rel))
         try:

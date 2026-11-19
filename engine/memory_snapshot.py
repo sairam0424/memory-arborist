@@ -66,11 +66,20 @@ def _hash_tree(memory_dir, files):
 
 
 def _write_json_private(path, data):
+    """Complete or absent, never torn: written to path.part, flushed and fsynced, moved into place with one os.replace, then the folder is fsynced,
+    so a kill or a power cut cannot leave a created but empty file and the file is on disk before the caller goes on."""
     tmp = path + ".part"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, PRIVATE_FILE_MODE)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, PRIVATE_FILE_MODE)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=1, sort_keys=True)
+        fh.flush()
+        os.fsync(fh.fileno())
     os.replace(tmp, path)
+    folder = os.open(os.path.dirname(path), os.O_RDONLY)
+    try:
+        os.fsync(folder)
+    finally:
+        os.close(folder)
 
 
 def _new_snapshot_id(ops, now):

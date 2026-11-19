@@ -375,6 +375,20 @@ class CommandTests(unittest.TestCase):
         self.assertIn("work folder:", out.getvalue())
 
 
+class InterruptTests(unittest.TestCase):
+    def test_ctrl_c_stops_the_script_with_a_message_and_no_score_table(self):
+        def runner(argv, cwd, env, stdin_text):
+            raise KeyboardInterrupt
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = rs.main(["--live"], runner=runner)
+        self.assertEqual(code, 130, out.getvalue())
+        self.assertIn("INTERRUPTED", out.getvalue())
+        self.assertIn("may still have been billed", out.getvalue())
+        self.assertNotIn("stale notes:", out.getvalue())  # no table for a run that never finished
+
+
 class IncompleteRunTests(unittest.TestCase):
     def test_a_run_whose_model_calls_fail_is_reported_incomplete_and_exits_nonzero(self):
         def runner(argv, cwd, env, stdin_text):

@@ -81,6 +81,18 @@ class MapCallsTests(unittest.TestCase):
         )
         self.assertIn("interrupted", spend.stopped)
 
+    def test_an_error_that_reaches_the_main_thread_also_stops_the_spend(self):
+        spend = mrr.Spend(LIMIT)
+
+        def work(item):
+            if item == 0:
+                raise RuntimeError("a worker failed")
+            time.sleep(0.05)
+
+        with self.assertRaises(RuntimeError):
+            mrr.map_calls(WORKERS, work, range(ITEMS), spend)
+        self.assertIn("interrupted", spend.stopped)
+
     def test_a_normal_map_returns_its_results_in_order_and_does_not_stop_the_run(self):
         spend = mrr.Spend(100.0)
         self.assertEqual(
@@ -143,6 +155,7 @@ class JudgeTests(TempRoot):
         code, out, err = run_main(argv, runner)
         self.assertEqual(code, 130, out + err)
         self.assertIn("INTERRUPTED", out + err)
+        self.assertIn("may still have been billed", out + err)
         self.assertNotIn("Traceback", out + err)
 
 
@@ -176,6 +189,7 @@ class WizardTests(WizardBase):
         )
         self.assertEqual(code, 130, out + err)
         self.assertIn("INTERRUPTED", out + err)
+        self.assertIn("may still have been billed", out + err)
         self.assertNotIn("Traceback", out + err)
 
 
