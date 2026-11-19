@@ -11,6 +11,7 @@ import hashlib
 import math
 import argparse
 import contextlib
+from concurrent.futures import ThreadPoolExecutor
 import io
 import json
 import os
@@ -71,6 +72,18 @@ class ToolsMismatch(RunAborted):
 
 class CostCeiling(RunAborted):
     pass
+
+
+def map_calls(workers, fn, items, spend):
+    """list(map(fn, items)) over a pool of threads that make paid calls. A pool's shutdown waits for every call still queued, so when the map
+    ends early (Ctrl-C, or an error in one worker) the spend counter is stopped FIRST: the queued calls then refuse before they launch,
+    and only the ones already running finish."""
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        try:
+            return list(pool.map(fn, items))
+        except BaseException:
+            spend.stop("interrupted: the run ended early, so the calls still queued were not made")
+            raise
 
 
 class Spend:

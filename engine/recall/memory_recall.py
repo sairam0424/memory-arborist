@@ -16,7 +16,6 @@ import sys
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -190,8 +189,7 @@ def run_arm(questions, runner, settings, memory, tmp, label, spend, workers):
         early.note(record)
         return record
 
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        return list(pool.map(one, questions))
+    return mrr.map_calls(workers, one, questions, spend)
 
 
 def report_run(arm, number, questions, records, show_failed=False):
@@ -578,6 +576,9 @@ def main(argv=None, runner=None):
     except eg.SecretShapesRefused as err:
         print("REFUSED: %s" % mc.printable(err), file=sys.stderr)
         return eg.EXIT_SECRET_SHAPES
+    except KeyboardInterrupt:
+        print("INTERRUPTED: the run was stopped; model calls that were already running may still have been billed")
+        return 130
     except (mc.HygieneError, OSError, ValueError) as err:
         print("ERROR: %s" % mc.printable(err), file=sys.stderr)
         return EXIT_FAIL

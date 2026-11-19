@@ -305,6 +305,13 @@ M = [
     ("Y06 stopping the run does not wake a waiting call", "recall/memory_recall_run.py", r"self\.stopped = self\.stopped or reason\n            self\._changed\.notify_all\(\)", "self.stopped = self.stopped or reason\n            pass"),
     ("Y07 a call is refused instead of waiting for the running ones", "recall/memory_recall_run.py", r"                self\._changed\.wait\(\)", "                raise CostCeiling('the caps of the running calls reach the ceiling')"),
     ("Y08 the held sum is not reset when nothing is running", "recall/memory_recall_run.py", r"self\.reserved = self\.reserved - cap if self\.running else 0\.0", "self.reserved = self.reserved - cap"),
+    ("Z01 an interrupted map does not stop the spend counter", "recall/memory_recall_run.py", r'            spend\.stop\("interrupted: the run ended early', '            pass  # spend.stop("interrupted: the run ended early'),
+    ("Z02 the judge's arm waits for every queued call after an interrupt", "recall/memory_recall.py", r"    return mrr\.map_calls\(workers, one, questions, spend\)", "    import concurrent.futures as _cf\n    with _cf.ThreadPoolExecutor(max_workers=max(1, workers)) as pool:\n        return list(pool.map(one, questions))"),
+    ("Z03 the wizard waits for every queued batch after an interrupt", "recall/memory_recall_wizard.py", r"        return mrr\.map_calls\(workers, one, chunks, spend\)", "        import concurrent.futures as _cf\n        with _cf.ThreadPoolExecutor(max_workers=max(1, workers)) as pool:\n            return list(pool.map(one, chunks))"),
+    ("Z04 the lanes' pool waits for every queued call after an interrupt", "dream/memory_dream_run.py", r'    return mrr\.map_calls\(ctx\["workers"\], fn, items, ctx\["lane"\]\[3\]\)', '    import concurrent.futures as _cf\n    with _cf.ThreadPoolExecutor(max_workers=max(1, ctx["workers"])) as pool:\n        return list(pool.map(fn, items))'),
+    ("Z05 the judge lets an interrupt through", "recall/memory_recall.py", r"    except KeyboardInterrupt:\n        print\(\"INTERRUPTED", "    except ZeroDivisionError:\n        print(\"INTERRUPTED"),
+    ("Z06 the lanes command lets an interrupt through", "dream/memory_dream_run.py", r"    except KeyboardInterrupt:\n        print\(\"INTERRUPTED", "    except ZeroDivisionError:\n        print(\"INTERRUPTED"),
+    ("Z07 the wizard lets an interrupt through", "recall/memory_recall_wizard.py", r"    except KeyboardInterrupt:\n        print\(\"INTERRUPTED", "    except ZeroDivisionError:\n        print(\"INTERRUPTED"),
     ("R04 save preflight ignores links", "recall/memory_recall.py", r"real = os\.path\.realpath\(target\)", "real = target"),
     ("R05 save preflight ignores a locked file", "recall/memory_recall.py", r"    if os\.path\.lexists\(real\) and not os\.access\(real, os\.W_OK\):", "    if False:"),
     ("R06 late save failure not caught", "recall/memory_recall.py", r"    except OSError as err:  # the preflight catches", "    except ZeroDivisionError as err:  # the preflight catches"),
@@ -346,8 +353,10 @@ EXTRA_SUITES = {
     "memory_egress.py": [("tests", "test_memory_egress.py"), ("recall/tests", "test_memory_recall_egress.py")],
     "memory_scan.py": [("tests", "test_memory_scan.py"), ("tests", "test_memory_extra_scan_common.py")],
     "memory_lint.py": [("tests", "test_memory_lint.py"), ("tests", "test_memory_extra_lint.py")],
-    "recall/memory_recall.py": [("recall/tests", "test_memory_recall_egress.py"), ("recall/tests", "test_memory_recall_save_preflight.py")],
-    "recall/memory_recall_run.py": [("recall/tests", "test_memory_recall_cost.py"), ("recall/tests", "test_memory_recall_spend_inflight.py")],
+    "recall/memory_recall.py": [("recall/tests", "test_memory_recall_egress.py"), ("recall/tests", "test_memory_recall_save_preflight.py"), ("recall/tests", "test_memory_recall_interrupt.py")],
+    "recall/memory_recall_run.py": [("recall/tests", "test_memory_recall_cost.py"), ("recall/tests", "test_memory_recall_spend_inflight.py"), ("recall/tests", "test_memory_recall_interrupt.py")],
+    "recall/memory_recall_wizard.py": [("recall/tests", "test_memory_recall_interrupt.py")],
+    "dream/memory_dream_run.py": [("dream/tests", "test_dream_interrupt.py")],
 }
 
 

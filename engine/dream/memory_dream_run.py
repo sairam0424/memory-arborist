@@ -16,7 +16,6 @@ import re
 import sys
 import tempfile
 from collections import namedtuple
-from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(HERE)
@@ -45,9 +44,8 @@ NOTE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.md")
 PipelineResult = namedtuple("PipelineResult", "hunks stats trace")
 
 
-def _pool_map(workers, fn, items):
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        return list(pool.map(fn, items))
+def _pool_map(ctx, fn, items):
+    return mrr.map_calls(ctx["workers"], fn, items, ctx["lane"][3])  # the lane tuple is (system file, settings, runner, spend, cwd)
 
 
 def _valid_finding(item, notes):
@@ -70,7 +68,7 @@ def _finder_stage(digest_texts, index_text, notes, ctx):
         for i in range(0, len(digest_texts), DIGESTS_PER_LANE)
     ]
     answers = _pool_map(
-        ctx["workers"],
+        ctx,
         lambda chunk: lanes.run_lane(
             lanes.finder_prompt(index_text, chunk, dates), *ctx["lane"]
         ),
@@ -129,9 +127,7 @@ def _valid_hunk(item):
 
 
 def _writer_stage(tasks, ctx):
-    answers = _pool_map(
-        ctx["workers"], lambda task: lanes.run_lane(task[1], *ctx["lane"]), tasks
-    )
+    answers = _pool_map(ctx, lambda task: lanes.run_lane(task[1], *ctx["lane"]), tasks)
     hunks, errors, over_cap = [], 0, 0
     for (name, _prompt, kind), answer in zip(tasks, answers):
         items = answer.get("hunks") if isinstance(answer, dict) else None
@@ -185,7 +181,7 @@ def _verifier_stage(hunks, notes, digests_by_session, ctx):
             return False, "no usable verdict", True
         return answer["verdict"] == "keep", str(answer.get("why", ""))[:300], False
 
-    return _pool_map(ctx["workers"], verify, hunks)
+    return _pool_map(ctx, verify, hunks)
 
 
 def run_pipeline(ops, snap_id, runner, settings, spend, workers=4, max_notes=MAX_NOTES):
@@ -389,6 +385,9 @@ def main(argv=None, runner=None):
     except eg.SecretShapesRefused as err:
         print("REFUSED: %s" % mc.printable(err), file=sys.stderr)
         return eg.EXIT_SECRET_SHAPES
+    except KeyboardInterrupt:
+        print("INTERRUPTED: the run was stopped; model calls that were already running may still have been billed")
+        return 130
     except (mc.HygieneError, OSError, ValueError) as err:
         print("ERROR: %s" % mc.printable(err), file=sys.stderr)
         return dr.EXIT_FAIL

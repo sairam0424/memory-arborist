@@ -22,7 +22,6 @@ import os
 import re
 import sys
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.dirname(HERE)
@@ -366,8 +365,7 @@ def _ask_chunks(chunks, notes, runner, settings, spend, workers):
                     return CEILING  # money was spent on the other batches: keep what they returned
                 raise
 
-        with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-            return list(pool.map(one, chunks))
+        return mrr.map_calls(workers, one, chunks, spend)
 
 
 def _candidates(replies, chunks):
@@ -715,6 +713,9 @@ def main(argv=None, runner=None):
     except eg.SecretShapesRefused as err:
         print("REFUSED: %s" % mc.printable(err), file=sys.stderr)
         return eg.EXIT_SECRET_SHAPES
+    except KeyboardInterrupt:
+        print("INTERRUPTED: the run was stopped; model calls that were already running may still have been billed")
+        return 130
     except (mc.HygieneError, OSError, ValueError) as err:
         print("ERROR: %s" % mc.printable(err), file=sys.stderr)
         return EXIT_FAIL
