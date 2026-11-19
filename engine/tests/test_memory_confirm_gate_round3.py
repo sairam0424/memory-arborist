@@ -171,18 +171,18 @@ class RoundThreeTests(unittest.TestCase):
 
         for padding in ("memory_" * 8000 + "9", "memory_a_" * 6000 + "9", "memory_dream" * 5000 + "9", "memory_hygiene" * 4000 + "x"):
             with self.subTest(padding[:12]):
-                started = time.monotonic()
+                started = time.process_time()
                 self.assertIn("ask", gate.decision(payload(padding + "\npython3 memory_dream.py promote RUN --apply")))
-                self.assertLess(time.monotonic() - started, 3.0)  # linear: well under a second; the first version took 5 s at 40 KB
+                self.assertLess(time.process_time() - started, 3.0)  # linear: well under a second; the first version took 5 s at 40 KB
 
     def test_the_patterns_stay_linear_on_text_built_to_make_them_search(self):
         import time
 
         for command in ("python3 " * 30000, "python3 -W " * 20000, "python3 x " * 25000 + " promote --apply", "memory_dream.py " * 15000):
             with self.subTest(command[:20]):
-                started = time.monotonic()
+                started = time.process_time()
                 gate.needs_confirmation(command)
-                self.assertLess(time.monotonic() - started, 10.0)  # about 0.3 s; an unbounded pattern takes minutes
+                self.assertLess(time.process_time() - started, 10.0)  # about 0.3 s; an unbounded pattern takes minutes
 
     def test_a_json_parser_that_runs_out_of_recursion_is_judged_on_the_raw_text(self):
         from unittest import mock

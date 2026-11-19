@@ -70,9 +70,9 @@ class CardAfterManyDigitsTests(unittest.TestCase):
         import time
 
         text = "1234 " * 20000
-        started = time.monotonic()
+        started = time.process_time()
         mr.mask_pii(text)
-        self.assertLess(time.monotonic() - started, 30.0)
+        self.assertLess(time.process_time() - started, 30.0)
 
 
 class ChildToolNamesTests(unittest.TestCase):
@@ -180,9 +180,9 @@ class CardLengthsAndOverMaskingTests(unittest.TestCase):
     def test_a_very_long_run_of_one_digit_groups_is_cheap(self):
         import time
 
-        started = time.monotonic()
+        started = time.process_time()
         mr.mask_pii("1 " * 100000)
-        self.assertLess(time.monotonic() - started, 20.0)
+        self.assertLess(time.process_time() - started, 20.0)
 
 
 class CardWithATailTests(unittest.TestCase):

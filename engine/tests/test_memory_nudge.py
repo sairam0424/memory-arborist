@@ -4,6 +4,7 @@ import ast
 import os
 import shutil
 import signal
+import resource
 import subprocess
 import sys
 import tempfile
@@ -126,9 +127,9 @@ class MessageTests(TempRoot):
 
     def test_a_huge_index_is_read_in_bounded_form_and_reported_as_at_least(self):
         big = memory_with(SHORT_MARKER + "x" * (nudge.MAX_READ_BYTES * 3))
-        started = time.monotonic()
+        started = time.process_time()
         line = nudge.nudge_line(big)
-        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertLess(time.process_time() - started, 2.0)
         self.assertIn("at least", line)
         self.assertNotIn(SHORT_MARKER, line)
 
@@ -531,9 +532,12 @@ class HookProcessTests(TempRoot):
         self.assertNotIn("__pycache__", os.listdir(copy))
 
     def test_it_is_fast_enough_for_every_session_start(self):
-        started = time.monotonic()
+        # CPU time of the child process (user + system), not wall-clock time: a loaded or sleeping machine cannot fail it, a slow script still does
+        usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        started = usage.ru_utime + usage.ru_stime
         run_script(["--dir", memory_with(index_with_chars(19000))])
-        self.assertLess(time.monotonic() - started, 3.0)
+        usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+        self.assertLess(usage.ru_utime + usage.ru_stime - started, 3.0)
 
 
 class MainSafetyNetTests(TempRoot):
@@ -662,9 +666,9 @@ class GitRootTests(TempRoot):
 
     def test_a_deep_path_without_any_repository_is_cheap_and_finds_nothing(self):
         deep = "/" + "/".join("d%d" % i for i in range(120))
-        started = time.monotonic()
+        started = time.process_time()
         self.assertIsNone(nudge.memory_dir_for_cwd(deep, th.make_dir({})))
-        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertLess(time.process_time() - started, 1.0)
 
     def test_a_symlinked_git_file_is_not_followed_so_it_cannot_redirect_the_lookup(self):
         base = th.make_dir({})

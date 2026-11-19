@@ -159,7 +159,7 @@ cd ../release
 python3 -I -m unittest discover -s tests -p 'test_*.py'
 ```
 
-`dev/harness/` holds mutation checks that edit a temporary copy of the engine and expect the tests to fail. A few timing assertions in the safety-net suite can fail on a heavily loaded machine; rerun when it is idle.
+`dev/harness/` holds mutation checks that edit a temporary copy of the engine and expect the tests to fail. The 19 timing assertions that guard against a slow or hanging path measure CPU time (the child's, for the one that runs a process), so a loaded or sleeping machine does not fail them; `dev/harness/harness_timing.py` runs each against a deliberately slow copy and expects it to fail.
 
 ## Not affiliated
 

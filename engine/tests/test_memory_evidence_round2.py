@@ -357,10 +357,10 @@ class SessionRobustnessTests(Base):
         self.assertNotIn("long long long", digest.text)
 
     def test_bash_input_openers_without_a_closer_do_not_hang(self):
-        started = time.monotonic()
+        started = time.process_time()
         md._record_text(user("<bash-input>" * 16000))
         md._record_text(user("<command-name>" * 16000))
-        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertLess(time.process_time() - started, 1.0)
 
     def test_the_quiet_window_cannot_be_switched_off_from_the_command_line(self):
         write_transcript(self.source, 1, basic(), age_days=0)

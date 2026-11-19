@@ -157,9 +157,9 @@ class HunkSizeTests(unittest.TestCase):
     def test_the_longest_text_that_is_let_through_scans_in_a_bounded_time(self):
         import time
 
-        started = time.monotonic()
+        started = time.process_time()
         dg._added_tokens("a." * (dg.MAX_HUNK_CHARS // 2))
-        self.assertLess(time.monotonic() - started, 30.0)
+        self.assertLess(time.process_time() - started, 30.0)
 
 
 if __name__ == "__main__":

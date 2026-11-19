@@ -34,9 +34,9 @@ class ExtractJsonTests(unittest.TestCase):
 
     def test_pathological_replies_are_cheap(self):
         for reply in ("{ " * 80000, "[x]" * 80000, "[" * 60000, "{" * 200000):
-            started = time.monotonic()
+            started = time.process_time()
             lanes.extract_json(reply)
-            self.assertLess(time.monotonic() - started, 2.0, reply[:6])
+            self.assertLess(time.process_time() - started, 2.0, reply[:6])
 
 
 class MalformedWriterTests(Base):

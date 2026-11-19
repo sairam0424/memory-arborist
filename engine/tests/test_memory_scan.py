@@ -250,19 +250,19 @@ class SafetyTests(unittest.TestCase):
             ("ta" + "sk-" + "ant-") * (big // 9),
             ("di" + "sk_" + "test_") * (big // 10),
         ]
-        started = time.monotonic()
+        started = time.process_time()
         for text in cases:
             ms.scan_text(text)
         self.assertLess(
-            time.monotonic() - started, 20, "a pattern backtracks super-linearly"
+            time.process_time() - started, 20, "a pattern backtracks super-linearly"
         )
 
     def test_many_block_hits_scale_linearly(self):
         text = "\n".join(th.fake_github_token() for _ in range(20_000))
-        started = time.monotonic()
+        started = time.process_time()
         hits = ms.scan_text(text)
         self.assertEqual(ms.summarize(hits)[0], 20_000)
-        self.assertLess(time.monotonic() - started, 20)
+        self.assertLess(time.process_time() - started, 20)
 
 
 if __name__ == "__main__":

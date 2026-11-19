@@ -144,9 +144,9 @@ class ShapeAndFormatTests(Base):
                 self.assertIn("reason", self.why(reason=reason))
 
     def test_a_huge_new_text_is_rejected_before_it_is_scanned(self):
-        started = time.monotonic()
+        started = time.process_time()
         self.assertIn("grows", self.why(new="word " * 4_000_000))
-        self.assertLess(time.monotonic() - started, 3.0)
+        self.assertLess(time.process_time() - started, 3.0)
 
     def test_a_note_that_is_not_valid_utf8_cannot_be_edited(self):
         raw = (

@@ -402,9 +402,9 @@ class LintTruthTests(unittest.TestCase):
             + " " * 200000
             + "\nmetadata:\n  type: feedback\n---\nx\n"
         )
-        started = time.monotonic()
+        started = time.process_time()
         lint({"MEMORY.md": "", "t.md": text})
-        self.assertLess(time.monotonic() - started, 3)
+        self.assertLess(time.process_time() - started, 3)
 
     def test_yaml_nonstring_is_an_exact_match_and_new_hazards_exist(self):
         h = mf.description_hazards

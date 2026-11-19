@@ -224,15 +224,15 @@ class ShapeGapTests(TempRoot):
 
 class BoundTests(TempRoot):
     def test_characters_that_explode_under_normalisation_stay_cheap(self):
-        started = time.monotonic()
+        started = time.process_time()
         mr.sanitize("ﷺ" * 200000)
-        self.assertLess(time.monotonic() - started, 6.0)
+        self.assertLess(time.process_time() - started, 6.0)
 
     def test_a_giant_user_block_is_never_scanned(self):
-        started = time.monotonic()
+        started = time.process_time()
         piece = md._human_piece("a " * 4_000_000)
         self.assertGreater(len(piece), mr.MAX_RECORD_CHARS)
-        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertLess(time.process_time() - started, 1.0)
 
     def test_the_oversize_cap_is_checked_before_any_scanning(self):
         original = mr.has_secret

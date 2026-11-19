@@ -372,9 +372,9 @@ class CandidateTests(unittest.TestCase):
         for pattern, text in worst:
             with self.subTest(pattern[:30]):
                 self.assertIsNone(wz.pattern_problem(pattern))
-                started = time.monotonic()
+                started = time.process_time()
                 re.search(pattern, text, re.S)
-                self.assertLess(time.monotonic() - started, 10.0)  # a hang guard, not a benchmark
+                self.assertLess(time.process_time() - started, 10.0)  # a hang guard, not a benchmark
 
     def test_a_non_list_or_oversized_key_list_is_rejected(self):
         self.assertTrue(self.reason(self.recall(must="(?i)priya")))

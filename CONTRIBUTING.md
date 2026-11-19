@@ -12,7 +12,7 @@ Standard library only. Functions under 60 lines and every `engine/memory_*.py` s
 
 ## Mutation checks
 
-`dev/harness/` edits a temporary copy of the engine and expects the tests to fail. If you change code that a harness mutant targets, rerun it (`python3 -I dev/harness/harness_dream.py`, `python3 -I dev/harness/harness_nudge.py`, `python3 -I dev/harness/harness_wizard.py`); a surviving mutant means a missing test, unless it is listed as equivalent in the harness header.
+`dev/harness/` edits a temporary copy of the engine and expects the tests to fail. If you change code that a harness mutant targets, rerun it (`python3 -I dev/harness/harness_dream.py`, `python3 -I dev/harness/harness_nudge.py`, `python3 -I dev/harness/harness_wizard.py`); a test that bounds the time of a function measures CPU time (`time.process_time()`, or `resource.getrusage(resource.RUSAGE_CHILDREN)` for a child process), never wall-clock time, and goes into the table of `dev/harness/harness_timing.py`, which runs it against a copy whose function spins for longer than the bound and expects it to fail; a surviving mutant means a missing test, unless it is listed as equivalent in the harness header.
 
 `dev/acceptance/run_seeded.py` is the seeded-bad-note test: it plants known-stale facts and traps in a synthetic memory and counts what the real pipeline fixed, missed and wrongly edited. Its unit tests (`dev/acceptance/tests`) run with a scripted model and spend nothing; the `--live` run uses your claude login and costs a few dollars at most.
 

@@ -109,9 +109,9 @@ class RegexCostTests(TempRoot):
     def test_flag_lookalike_runs_do_not_cost_quadratic_time(self):
         for unit in ("=-p", "=-u", ".-p", ".-u"):
             with self.subTest(unit=unit):
-                started = time.monotonic()
+                started = time.process_time()
                 mr.sanitize(unit * 60000)
-                self.assertLess(time.monotonic() - started, 3.0, unit)
+                self.assertLess(time.process_time() - started, 3.0, unit)
 
 
 class LabelledCredentialTests(TempRoot):
@@ -497,9 +497,9 @@ class VerifyCoverageTests(Base):
     def test_a_huge_file_with_a_digest_name_is_not_read_whole(self):
         self.make_good()
         os.truncate(self.path, 50 * 1024 * 1024)
-        started = time.monotonic()
+        started = time.process_time()
         self.assertFalse(me.verify_dir(self.out).ok)
-        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertLess(time.process_time() - started, 2.0)
 
 
 if __name__ == "__main__":
