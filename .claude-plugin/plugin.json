@@ -1,6 +1,6 @@
 {
   "name": "memory-arborist",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A memory upgrade for your Claude Code harness: verified snapshots, safe clean-up of the auto-memory directory from your past sessions, an outside recall check, and a diff you approve before anything changes.",
   "author": { "name": "sairam0424" },
   "license": "Apache-2.0",
