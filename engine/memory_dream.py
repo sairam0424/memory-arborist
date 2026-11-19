@@ -28,8 +28,8 @@ import memory_snapshot as sn  # noqa: E402
 EXIT_OK, EXIT_FAIL, EXIT_USAGE = 0, 1, 64
 RUN_ID = re.compile(r"[0-9]{8}T[0-9]{6}Z")
 SNAP_ID = re.compile(r"[0-9]{8}T[0-9]{6}Z(?:-[0-9]{2})?")
-MARKER = "promoted.json"
-FAILED_MARKER = "promote-failed.json"  # a promote that failed before it replaced any note: it does not use the run up
+MARKER = ds.PROMOTED_MARKER
+FAILED_MARKER = ds.FAILED_MARKER  # a promote that failed before it replaced any note: it does not use the run up
 DEFAULT_MAX_HUNKS = 10
 
 
@@ -218,6 +218,7 @@ def _promotion_plan(memory, ops, run_dir):
         raise mc.HygieneError(
             "the staged copy fails its checks: " + "; ".join(problems)
         )
+    ds.refuse_if_attempt_died(run_dir, memory, ops, manifest)  # a promote of this run that was killed halfway is explained here, not as "changed since the snapshot"
     touched = sorted({h["file"] for h in accepted})
     for rel in touched:
         live = os.path.join(memory, rel)
@@ -381,6 +382,7 @@ def _apply_promotion(args, memory, ops, run_dir, snap, touched):
     prepared = _prepare_install(memory, ops, run_dir, touched, manifest)
     pre = sn.take_snapshot(memory, ops, now=args.now)
     with reg.ops_lock(ops), ds.held_signals():  # records are written before the lock is released (a loser sees the marker) and before a signal lands
+        ds.begin_attempt(run_dir, memory, manifest, touched, pre["id"])  # before any note moves: a kill after this point leaves a trace the next promote can read
         for rel in touched:  # only now: a promote refused for any reason before this point must not claim it is replacing anything
             ds.say("replacing %s (the old copy is archived first)" % mc.printable(rel))
         try:

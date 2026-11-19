@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -18,10 +19,12 @@ from collections import Counter, namedtuple
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import memory_common as mc  # noqa: E402
 import memory_lint as ml  # noqa: E402
+import memory_registry as reg  # noqa: E402
 import memory_scan as ms  # noqa: E402
 import memory_snapshot as sn  # noqa: E402
 
 PRIVATE_FILE_MODE = 0o600
+STARTED_MARKER, PROMOTED_MARKER, FAILED_MARKER = "promote-started.json", "promoted.json", "promote-failed.json"
 StageResult = namedtuple("StageResult", "run_dir ok problems digest")
 
 
@@ -319,6 +322,84 @@ def marker_message(path):
         "(step 1) and run the dream again (step 4)"
         % (len(marker.get("files", [])), snap, marker.get("archive", "?"), snap)
     )
+
+
+def _markers(run_dir, base):
+    """The marker files of one kind (base, base.1, base.2 ...) in the order they were written."""
+    found = [n for n in os.listdir(run_dir) if re.fullmatch(re.escape(base) + r"(\.[0-9]+)?", n)]
+    return sorted(found, key=lambda n: int(n[len(base) + 1 :] or 0))
+
+
+def dangling_attempts(run_dir):
+    """Promote attempts of this run that began and never recorded how they ended. A promote that is killed (SIGKILL, a power cut)
+    cannot write anything more, so a started marker with no outcome marker is the only trace it leaves."""
+    ended = len(_markers(run_dir, FAILED_MARKER)) + len(_markers(run_dir, PROMOTED_MARKER))
+    return max(0, len(_markers(run_dir, STARTED_MARKER)) - ended)
+
+
+def _write_marker(run_dir, base, data):
+    _write_new(mc.unique_path(os.path.join(run_dir, base)), json.dumps(data).encode("utf-8"))
+
+
+def _differs(memory, rel, manifest):
+    entry, live = manifest["files"].get(rel), os.path.join(memory, rel)
+    return not (entry and os.path.isfile(live) and not os.path.islink(live) and mc.sha256_file(live) == entry["sha256"])
+
+
+def _died_problem(run_dir, memory, manifest):
+    """None when no earlier attempt is left without an outcome, or when the one that is replaced nothing; else why the run must not go on."""
+    if not dangling_attempts(run_dir):
+        return None
+    name = _markers(run_dir, STARTED_MARKER)[-1]  # the newest
+    try:
+        data = json.loads(mc.read_text(os.path.join(run_dir, name)))
+    except (OSError, ValueError, RecursionError):
+        data = None
+    files = data.get("files") if isinstance(data, dict) else None
+    pre = data.get("pre_snapshot") if isinstance(data, dict) else None
+    if not (isinstance(files, list) and all(isinstance(f, str) for f in files) and isinstance(pre, str)):
+        return (
+            "an earlier promote of this run began and did not finish, and its record (%s) cannot be read, so it is not known whether notes were "
+            "replaced: check the notes and `memory_hygiene.py snapshots` before doing anything else" % mc.printable(name)
+        )
+    changed = [rel for rel in files if _differs(memory, rel, manifest)]
+    if not changed:
+        return None
+    return (
+        "an earlier promote of this run did not finish: it was killed, or the machine stopped, before it recorded how it ended. It was going to replace "
+        "%s; %s no longer match the snapshot this run was made from. Pre-promote snapshot %s holds the old copies. To undo, run "
+        "`memory_hygiene.py restore --snapshot %s --file <note> --apply --force` for each of those notes; then promote this run again, or take a fresh "
+        "snapshot (step 1) and run the dream again (step 4)"
+        % (", ".join(map(mc.printable, files)), ", ".join(map(mc.printable, changed)), mc.printable(pre), mc.printable(pre))
+    )
+
+
+def refuse_if_attempt_died(run_dir, memory, ops, manifest):
+    """Dry run or apply: an earlier attempt that died with notes replaced stops the run, and says what to do. A promote that is running
+    right now holds the lock and is not a dead one, so the lock is the test."""
+    if dangling_attempts(run_dir):
+        with reg.ops_lock(ops):
+            problem = _died_problem(run_dir, memory, manifest)
+        if problem:
+            raise mc.HygieneError(problem)
+
+
+def begin_attempt(run_dir, memory, manifest, files, pre_snapshot):
+    """With the lock held and before the first note is replaced: refuse if an earlier attempt died with notes replaced (checked again
+    here, under the lock), close those that died with nothing replaced, and record that this attempt began."""
+    problem = _died_problem(run_dir, memory, manifest)
+    if problem:
+        raise mc.HygieneError(problem)
+    try:
+        for _ in range(dangling_attempts(run_dir)):
+            error = "an earlier attempt did not finish (killed, or the machine stopped, before it recorded how it ended); it had replaced nothing"
+            _write_marker(run_dir, FAILED_MARKER, {"status": "failed-before-replacing", "files": [], "error": error})
+            say("an earlier promote of this run did not finish and had replaced nothing: recorded as failed, going on")
+        _write_marker(run_dir, STARTED_MARKER, {"status": "started", "files": list(files), "pre_snapshot": pre_snapshot})
+    except OSError as err:
+        raise mc.HygieneError(
+            "nothing was replaced: this attempt could not be recorded in the run folder (%s)" % mc.clean_line(err.strerror or type(err).__name__, 80)
+        )
 
 
 def log_or_note(ops, op, subject, bullets):

@@ -1,0 +1,286 @@
+"""A promote that is killed (SIGKILL, a power cut, the machine going down) cannot record anything: until now the next promote said only that a
+note "changed since the snapshot", without saying that an earlier promote had died halfway, which notes it had replaced, or the way back. A
+promote now writes an "attempt started" marker, with the pre-promote snapshot and the notes it is going to replace, before it replaces the first
+note. A later promote that finds such an attempt with no outcome says what happened and gives the restore commands; one that finds it with
+nothing replaced closes it and goes on. Each test kills a real `memory_dream.py promote --apply` process with SIGKILL."""
+
+import contextlib
+import io
+import json
+import os
+import signal
+import subprocess
+import sys
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import memtest_helpers as th  # noqa: E402
+from test_memory_promote_edges import PromoteBase  # noqa: E402
+
+sys.path.insert(0, th.SCRIPTS)
+import memory_common as mc  # noqa: E402
+import memory_dream as dr  # noqa: E402
+import memory_hygiene as mh  # noqa: E402
+import memory_dream_stage as ds  # noqa: E402
+import memory_registry as reg  # noqa: E402
+import memory_snapshot as sn  # noqa: E402
+
+DRIVER = (
+    """
+import os, signal, sys
+sys.path.insert(0, %r)
+import memory_snapshot as sn
+import memory_dream as dr
+real, calls, WHEN = sn._swap_in, {"n": 0}, sys.argv[1]
+
+def swap(*args, **kwargs):
+    calls["n"] += 1
+    if WHEN == "before-first" and calls["n"] == 1:
+        os.kill(os.getpid(), signal.SIGKILL)  # killed before any note was replaced
+    done = real(*args, **kwargs)
+    if WHEN == "after-first" and calls["n"] == 1:
+        os.kill(os.getpid(), signal.SIGKILL)  # killed with one note replaced and the other not
+    return done
+
+sn._swap_in = swap
+sys.exit(dr.main(sys.argv[2:]))
+"""
+    % th.SCRIPTS
+)
+
+
+class CrashedPromoteTests(PromoteBase):
+    def crash(self, when, run=None):
+        run = run or self.two_note_run()
+        digest = self.digest_of(run)
+        self.before = {
+            n: th.read(os.path.join(self.mem, n))
+            for n in os.listdir(self.mem)
+            if n.endswith(".md")
+        }
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-B",
+                "-I",
+                "-c",
+                DRIVER,
+                when,
+                "--dir",
+                self.mem,
+                "--ops-root",
+                self.root,
+                "promote",
+                os.path.basename(run),
+                "--apply",
+                "--expect",
+                digest,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(proc.returncode, -signal.SIGKILL, proc.stdout + proc.stderr)
+        return run, digest
+
+    def files(self, run, prefix):
+        return sorted(n for n in os.listdir(run) if n.startswith(prefix))
+
+    def test_the_killed_promote_leaves_a_started_marker_and_no_outcome(self):
+        run, _digest = self.crash("after-first")
+        self.assertEqual(len(self.files(run, "promote-started")), 1)
+        self.assertFalse(os.path.exists(os.path.join(run, dr.MARKER)))
+        started = json.loads(
+            th.read(os.path.join(run, self.files(run, "promote-started")[0]))
+        )
+        self.assertEqual(started["files"], ["feedback-other.md", "feedback-push.md"])
+        self.assertTrue(started["pre_snapshot"])
+
+    def test_the_next_promote_says_what_happened_which_notes_were_replaced_and_how_to_undo_it(
+        self,
+    ):
+        run, digest = self.crash("after-first")
+        for argv in (
+            ["promote", os.path.basename(run)],
+            ["promote", os.path.basename(run), "--apply", "--expect", digest],
+        ):
+            with self.subTest(argv[-1]):
+                code, out, err = self.cli(*argv)
+                self.assertEqual(code, 1, out + err)
+                self.assertIn("did not finish", err)
+                self.assertIn("feedback-other.md", err)  # the replaced one
+                started = json.loads(
+                    th.read(os.path.join(run, self.files(run, "promote-started")[0]))
+                )
+                self.assertIn(
+                    "restore --snapshot %s --file <note> --apply --force"
+                    % started["pre_snapshot"],
+                    err,
+                )
+                self.assertNotIn("replacing", out)
+                self.assertEqual(
+                    th.read(os.path.join(self.mem, "feedback-push.md")),
+                    self.before["feedback-push.md"],
+                )
+
+    def test_the_documented_way_back_restores_the_replaced_note(self):
+        run, _digest = self.crash("after-first")
+        code, _out, err = self.cli("promote", os.path.basename(run))
+        started = json.loads(
+            th.read(os.path.join(run, self.files(run, "promote-started")[0]))
+        )
+        self.assertNotEqual(
+            th.read(os.path.join(self.mem, "feedback-other.md")),
+            self.before["feedback-other.md"],
+        )
+        argv = [
+            "--dir", self.mem, "--ops-root", self.root, "restore",
+            "--snapshot", started["pre_snapshot"], "--file", "feedback-other.md", "--apply", "--force",
+        ]
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = mh.main(argv)
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            th.read(os.path.join(self.mem, "feedback-other.md")),
+            self.before["feedback-other.md"],
+        )
+        code, out, err = self.cli("promote", os.path.basename(run))
+        self.assertEqual(
+            code, 0, out + err
+        )  # after the undo the same run can be promoted again
+        self.assertIn("DIGEST", out)
+
+    def test_a_promote_that_died_before_replacing_anything_is_closed_and_the_run_goes_through(
+        self,
+    ):
+        run, digest = self.crash("before-first")
+        self.assertEqual(len(self.files(run, "promote-started")), 1)
+        code, out, err = self.cli(
+            "promote", os.path.basename(run), "--apply", "--expect", digest
+        )
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("PROMOTED 2 notes", out)
+        self.assertEqual(
+            json.loads(th.read(os.path.join(run, dr.MARKER)))["status"], "promoted"
+        )
+        self.assertEqual(
+            len(self.files(run, "promote-started")), 2
+        )  # the dead attempt and the new one
+        failed = self.files(run, "promote-failed")
+        self.assertEqual(len(failed), 1)
+        self.assertIn(
+            "did not finish", json.loads(th.read(os.path.join(run, failed[0])))["error"]
+        )
+
+    def test_a_promote_that_is_running_right_now_is_not_taken_for_a_dead_one(self):
+        run, _digest = self.crash("after-first")
+        with reg.ops_lock(self.ops):  # another run holds the lock
+            code, out, err = self.cli("promote", os.path.basename(run))
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("holds the lock", err)
+        self.assertNotIn("did not finish", err)
+
+    def test_a_normal_promote_and_a_clean_failure_leave_balanced_markers(self):
+        run = self.two_note_run()
+        self.with_swap(
+            1,
+            lambda: self.cli(
+                "promote",
+                os.path.basename(run),
+                "--apply",
+                "--expect",
+                self.digest_of(run),
+            ),
+        )
+        self.assertEqual(
+            (
+                len(self.files(run, "promote-started")),
+                len(self.files(run, "promote-failed")),
+            ),
+            (1, 1),
+        )  # failed before replacing
+        code, out, err = self.apply(
+            run
+        )  # the cause is fixed: the same run goes through, with nothing left dangling
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(
+            (
+                len(self.files(run, "promote-started")),
+                len(self.files(run, "promote-failed")),
+            ),
+            (2, 1),
+        )
+        self.assertEqual(ds.dangling_attempts(run), 0)
+        code, out, err = self.cli("promote", os.path.basename(run))
+        self.assertIn("already promoted", err)
+
+    def test_a_marker_that_cannot_be_written_stops_the_promote_before_it_replaces_anything(
+        self,
+    ):
+        run = self.two_note_run()
+        digest = self.digest_of(run)
+        before = {
+            n: th.read(os.path.join(self.mem, n))
+            for n in os.listdir(self.mem)
+            if n.endswith(".md")
+        }
+        if os.geteuid() == 0:
+            self.skipTest("root can write anywhere")
+        os.makedirs(
+            os.path.join(run, "install"), mode=0o700
+        )  # the copies can still be made; only a new file in the run folder cannot
+        os.chmod(run, 0o500)
+        try:
+            code, out, err = self.cli(
+                "promote", os.path.basename(run), "--apply", "--expect", digest
+            )
+        finally:
+            os.chmod(run, 0o700)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("nothing was replaced", err)
+        self.assertNotIn("replacing", out)
+        self.assertEqual(
+            {n: th.read(os.path.join(self.mem, n)) for n in before}, before
+        )
+
+    def test_the_message_names_the_newest_attempt_when_an_earlier_one_failed_cleanly(self):
+        run = self.two_note_run()
+        digest = self.digest_of(run)
+        self.with_swap(1, lambda: self.cli("promote", os.path.basename(run), "--apply", "--expect", digest))  # attempt 1: fails before replacing anything
+        th.write(os.path.join(self.mem, "project-new.md"), th.note("project-new", body="A note added between the two attempts."))  # so the snapshots differ
+        self.crash("after-first", run)  # attempt 2: killed with one note replaced
+        names = self.files(run, "promote-started")
+        self.assertEqual(len(names), 2)
+        older, newest = (json.loads(th.read(os.path.join(run, n)))["pre_snapshot"] for n in names)
+        self.assertNotEqual(older, newest)
+        code, out, err = self.cli("promote", os.path.basename(run))
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("--snapshot %s --file" % newest, err)
+        self.assertNotIn(older, err)
+
+    def test_a_started_marker_that_cannot_be_read_stops_the_run(self):
+        run, _digest = self.crash("before-first")
+        th.write(os.path.join(run, self.files(run, "promote-started")[0]), "{not json")
+        code, out, err = self.cli("promote", os.path.basename(run))
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("cannot be read", err)
+        self.assertIn("memory_hygiene.py snapshots", err)
+
+    def test_the_check_is_made_again_under_the_lock_before_an_attempt_begins(self):
+        run, _digest = self.crash("after-first")  # a promote died after the plan of another one was made: begin_attempt must not paper over it
+        manifest = sn.load_manifest(self.ops, self.snap)
+        with reg.ops_lock(self.ops):
+            with self.assertRaises(mc.HygieneError) as caught:
+                ds.begin_attempt(run, self.mem, manifest, ["feedback-other.md", "feedback-push.md"], "20231114T221320Z")
+        self.assertIn("did not finish", str(caught.exception))
+        self.assertEqual(len(self.files(run, "promote-started")), 1)  # and it wrote nothing
+
+    def test_the_marker_names_match_the_ones_the_promote_itself_uses(self):
+        self.assertEqual(
+            (ds.PROMOTED_MARKER, ds.FAILED_MARKER), (dr.MARKER, dr.FAILED_MARKER)
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
