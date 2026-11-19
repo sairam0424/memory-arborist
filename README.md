@@ -4,7 +4,7 @@
 
 **A memory upgrade for your Claude Code harness.** Claude Code keeps an auto-memory directory for each project: an index (`MEMORY.md`) and one note per topic. Over months it fills with notes that are stale, contradicted or half-duplicated, and the index creeps toward the point where Claude Code stops reading it. memory-arborist looks after that directory the way an arborist looks after a tree: it takes a backup first, finds what has gone stale **using what you actually said in your own past sessions**, drafts small edits, checks that the clean-up did not make Claude forget anything, and shows you every change as a diff. Nothing is installed until you say yes, and any change can be undone.
 
-> **Status: 0.1.1, invite-only beta.** The free half (snapshots, restore, lint, secret scan, the session-start hint, the doctor) is the stable part. The half that calls a model (the question wizard, the judge, the proposal lanes) is **experimental**: it has had two live runs on a synthetic memory, one login route, and a ten-hunk cap per run. Read "Limits" below before you try it. macOS and Linux only.
+> **Status: 0.1.1, public beta.** The free half (snapshots, restore, lint, secret scan, the session-start hint, the doctor) is the stable part. The half that calls a model (the question wizard, the judge, the proposal lanes) is **experimental**: it has had two live runs on a synthetic memory, one login route, and a ten-hunk cap per run. Read "Limits" below before you try it. macOS and Linux only.
 
 ## What you get
 
@@ -56,7 +56,7 @@ What rests on Claude Code's permission prompt and on you reading the diff:
 
 ## Install
 
-0.1.1 is an invite-only beta, so the repository is private: you need read access first, and git on your machine must already hold a credential for it (for GitHub, `gh auth login` then `gh auth setup-git`). Then:
+0.1.1 is a public beta. Install it with:
 
 ```
 claude plugin marketplace add sairam0424/memory-arborist#stable

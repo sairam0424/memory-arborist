@@ -27,5 +27,5 @@ Claude Code installs a plugin's copy only when its `version` changes, so every r
 1. Update `CHANGELOG.md` (move the `[Unreleased]` entries under the new version) and bump the `version`; `engine/tests/test_memory_release_packaging.py` fails if the manifest, the marketplace entry, the hook paths, the skill and the changelog disagree.
 2. Run every suite in the README's "Tests" section and `claude plugin validate . --strict`, and run `engine/doctor/memory_doctor.py --live` once on a real login.
 3. Tag with `claude plugin tag --push` (it validates, then creates and pushes the `memory-arborist--v<version>` tag).
-4. Move the `stable` branch to that tag (`git branch -f stable <tag>` and push it). Testers add the marketplace as `sairam0424/memory-arborist#stable`, so they follow releases and not the work in progress on `main`.
+4. Move the `stable` branch to that tag (`git branch -f stable <tag>` and push it). Users add the marketplace as `sairam0424/memory-arborist#stable`, so they follow releases and not the work in progress on `main`.
 5. Publish the GitHub release with the changelog section as its notes.
