@@ -244,7 +244,7 @@ class DirectoryChecksTests(unittest.TestCase):
         self.assertEqual(statuses(checks), [doc.FAIL])
         self.assertIn("MEMORY_ARBORIST_MEMORY_DIR", checks[0].fix)
 
-    def test_a_data_root_on_another_filesystem_is_a_warning(self):
+    def test_a_data_root_on_another_filesystem_is_a_failure(self):  # changed on the owner's decision (2026-11-19): it was a warning; promote and restore archive with a rename, which always fails across filesystems
         real_stat = os.stat
         notes_dev = real_stat(self.mem).st_dev
 
@@ -258,8 +258,9 @@ class DirectoryChecksTests(unittest.TestCase):
 
         with mock.patch.object(doc.os, "stat", fake_stat):
             check = doc._data_root_check(self.mem, self.root, self.ops)
-        self.assertEqual(check.status, doc.WARN)
+        self.assertEqual(check.status, doc.FAIL)
         self.assertIn("different filesystem", check.detail)
+        self.assertIn("promote and restore", check.detail)  # says what will not work, not only where the folder is
         self.assertIn("--ops-root", check.fix)
 
     def test_a_data_root_that_does_not_exist_yet_is_checked_through_its_nearest_parent(

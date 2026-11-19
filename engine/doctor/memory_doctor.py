@@ -461,11 +461,11 @@ def _data_root_check(memory_dir, ops_root, ops):
     state = "exists" if os.path.isdir(ops) else "is created by the first snapshot"
     if os.stat(_nearest_existing(memory_dir)).st_dev != os.stat(probe_path).st_dev:
         return Check(
-            WARN,
+            FAIL,
             "data-root",
-            "%s %s, but it is on a different filesystem than the notes"
+            "%s %s, but it is on a different filesystem than the notes: promote and restore move each note into the archive with a rename, which always fails across filesystems"
             % (label, state),
-            "restore and promote archive a note with a rename that fails across filesystems; use --ops-root on the same disk as the notes",
+            "use --ops-root (or MEMORY_ARBORIST_HOME) on the same disk as the notes",
         )
     return Check(
         OK,
