@@ -79,7 +79,9 @@ class Spend:
     def __init__(self, limit):
         self.limit, self.total, self.stopped = limit, 0.0, None
         self.reserved = 0.0  # the caps of the calls that are running now: they count as spent for a call that wants to start
+        self.running = 0  # how many: the test for "nothing is running" is this integer, never the float sum above
         self._lock = threading.Lock()
+        self._changed = threading.Condition(self._lock)  # a call ended, or the run was stopped
 
     def check(self):
         with self._lock:
@@ -88,35 +90,41 @@ class Spend:
     def _refuse_if_over(self):
         if self.stopped:
             raise RunAborted(self.stopped)
-        if self.total + self.reserved >= self.limit:
-            self.stopped = "cost ceiling reached (%.4f of %s USD%s)" % (
-                self.total,
-                self.limit,
-                ", with %.4f held by calls still running" % self.reserved if self.reserved else "",
-            )
+        if self.total >= self.limit:
+            self.stopped = "cost ceiling reached (%.4f of %s USD)" % (self.total, self.limit)
             raise CostCeiling(self.stopped)
 
     @contextlib.contextmanager
     def call(self, cap):
-        """One model call. It starts only if what has been spent plus the caps of the calls already running is still under the ceiling, and
-        it holds its own cap until it ends, however it ends. So N workers cannot all start on the last of the money: the ceiling can be
-        passed by less than one call's cap, not by one cap per worker."""
-        with self._lock:
-            self._refuse_if_over()
+        """One model call. It starts when what has been spent plus the caps of the calls already running is under the ceiling; while it is
+        not, it WAITS for a running call to end (a cap is an upper bound, usually far above the real cost, so the caps alone reaching the
+        ceiling slow the run down and never stop it); it is refused only when the money really spent has reached the ceiling, or the run was
+        stopped. It holds its own cap until it ends, however it ends. So N workers cannot all start on the last of the money: the ceiling
+        can be passed by less than one call's cap, not by one cap per worker."""
+        with self._changed:
+            while True:
+                self._refuse_if_over()
+                if self.running == 0 or self.total + self.reserved < self.limit:
+                    break
+                self._changed.wait()  # some call is running and will end: that wakes this one
             self.reserved += cap
+            self.running += 1
         try:
             yield
         finally:
-            with self._lock:
-                self.reserved -= cap
+            with self._changed:
+                self.running -= 1
+                self.reserved = self.reserved - cap if self.running else 0.0  # exactly zero when idle: no rounding residue, no overflow
+                self._changed.notify_all()
 
     def add(self, cost):
         with self._lock:
             self.total += cost
 
     def stop(self, reason):
-        with self._lock:
+        with self._changed:
             self.stopped = self.stopped or reason
+            self._changed.notify_all()
 
 
 # ------------------------------------------------------------------ question file

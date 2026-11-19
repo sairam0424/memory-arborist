@@ -4,6 +4,7 @@ test of the same name). Eight workers against a one-dollar ceiling with a quarte
 import os
 import sys
 import threading
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -39,11 +40,12 @@ class LaneSpendTests(unittest.TestCase):
             except (lanes.mrr.RunAborted, threading.BrokenBarrierError):
                 refused.append(1)
 
-        threads = [threading.Thread(target=worker) for _ in range(WORKERS)]
+        threads = [threading.Thread(target=worker, daemon=True) for _ in range(WORKERS)]
         for thread in threads:
             thread.start()
+        deadline = time.monotonic() + 10
         for thread in threads:
-            thread.join(30)
+            thread.join(max(0.0, deadline - time.monotonic()))
         self.assertFalse(any(thread.is_alive() for thread in threads))
         self.assertEqual(
             len(started), 4, "lane calls started: %d of %d" % (len(started), WORKERS)

@@ -297,10 +297,14 @@ M = [
     ("R08 save preflight accepts a named pipe", "recall/memory_recall.py", r"    if os\.path\.exists\(real\) and not os\.path\.isfile\(real\):", "    if False:"),
     ("R09 empty save path skips the preflight", "recall/memory_recall.py", r'    elif arm == "baseline":  # an empty string', '    elif arm == "baseline" and save:  # an empty string'),
     ("R10 missing save path is not noted", "recall/memory_recall.py", r'        print\("NOTE: no --save FILE:[^\n]*\n', "        pass\n"),
-    ("Y01 running calls do not count as spent", "recall/memory_recall_run.py", r"if self\.total \+ self\.reserved >= self\.limit:", "if self.total >= self.limit:"),
-    ("Y02 the hold of a call is never released", "recall/memory_recall_run.py", r"                self\.reserved -= cap", "                pass"),
+    ("Y01 running calls do not count as spent", "recall/memory_recall_run.py", r"if self\.running == 0 or self\.total \+ self\.reserved < self\.limit:", "if True:"),
+    ("Y02 the hold of a call is never released", "recall/memory_recall_run.py", r"                self\.running -= 1\n", "                pass\n"),
     ("Y03 the judge's ask does not hold its cap", "recall/memory_recall_run.py", r"    with spend\.call\(settings\.per_q_usd\):\n        return _ask\(", "    if True:\n        return _ask("),
     ("Y04 the lanes' ask_lane does not hold its cap", L, r"    with spend\.call\(settings\.per_q_usd\):\n        return _ask_lane\(", "    if True:\n        return _ask_lane("),
+    ("Y05 a waiting call is not woken when a call ends", "recall/memory_recall_run.py", r"                self\._changed\.notify_all\(\)", "                pass"),
+    ("Y06 stopping the run does not wake a waiting call", "recall/memory_recall_run.py", r"self\.stopped = self\.stopped or reason\n            self\._changed\.notify_all\(\)", "self.stopped = self.stopped or reason\n            pass"),
+    ("Y07 a call is refused instead of waiting for the running ones", "recall/memory_recall_run.py", r"                self\._changed\.wait\(\)", "                raise CostCeiling('the caps of the running calls reach the ceiling')"),
+    ("Y08 the held sum is not reset when nothing is running", "recall/memory_recall_run.py", r"self\.reserved = self\.reserved - cap if self\.running else 0\.0", "self.reserved = self.reserved - cap"),
     ("R04 save preflight ignores links", "recall/memory_recall.py", r"real = os\.path\.realpath\(target\)", "real = target"),
     ("R05 save preflight ignores a locked file", "recall/memory_recall.py", r"    if os\.path\.lexists\(real\) and not os\.access\(real, os\.W_OK\):", "    if False:"),
     ("R06 late save failure not caught", "recall/memory_recall.py", r"    except OSError as err:  # the preflight catches", "    except ZeroDivisionError as err:  # the preflight catches"),
@@ -378,7 +382,7 @@ def run_tests(fname=None):
     ]
     for cmd in cmds:
         try:
-            if subprocess.run(cmd, capture_output=True, text=True, timeout=600).returncode != 0:
+            if subprocess.run(cmd, capture_output=True, text=True, timeout=300).returncode != 0:
                 return True
         except subprocess.TimeoutExpired:  # a mutant that makes a test wait for ever is caught too
             return True

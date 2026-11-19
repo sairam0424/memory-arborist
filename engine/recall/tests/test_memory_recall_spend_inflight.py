@@ -5,6 +5,7 @@ running now counts as spent, at its cap, for every call that wants to start: the
 import os
 import sys
 import threading
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -24,11 +25,12 @@ LIMIT, CAP, WORKERS = 1.0, 0.25, 8
 
 
 def run_threads(target, count=WORKERS):
-    threads = [threading.Thread(target=target) for _ in range(count)]
+    threads = [threading.Thread(target=target, daemon=True) for _ in range(count)]
     for thread in threads:
         thread.start()
+    deadline = time.monotonic() + 10  # one deadline for all of them: a test that is going to fail must not take minutes to do it
     for thread in threads:
-        thread.join(30)
+        thread.join(max(0.0, deadline - time.monotonic()))
     assert not any(thread.is_alive() for thread in threads), "a worker never finished"
 
 
@@ -50,6 +52,93 @@ class SpendObjectTests(unittest.TestCase):
         run_threads(worker)
         self.assertEqual((len(entered), len(refused)), (4, 4))
         self.assertLessEqual(spend.total, LIMIT + 1e-9)
+
+    def test_a_call_waits_for_the_running_ones_instead_of_being_refused_while_the_real_spend_is_low(self):
+        # a per-call cap is an upper bound, usually far above the real cost: the caps alone reaching the ceiling must slow the run down,
+        # never stop it
+        spend = mrr.Spend(LIMIT)
+        running, peak, done, refused = [0], [0], [], []
+        lock = threading.Lock()
+
+        def worker():
+            try:
+                with spend.call(0.6):
+                    with lock:
+                        running[0] += 1
+                        peak[0] = max(peak[0], running[0])
+                    threading.Event().wait(0.05)  # the call takes a moment
+                    spend.add(0.01)  # and costs a cent
+                    with lock:
+                        running[0] -= 1
+                        done.append(1)
+            except mrr.RunAborted:
+                refused.append(1)
+
+        run_threads(worker)
+        self.assertEqual((len(done), len(refused)), (WORKERS, 0), "a run with a few cents spent was stopped by the caps of calls still running")
+        self.assertLessEqual(peak[0], 2, "more calls ran at once than the ceiling has room for at their caps")
+
+    def test_stopping_the_run_wakes_a_call_that_is_waiting(self):
+        spend = mrr.Spend(LIMIT)
+        holding, woke, outcome = threading.Event(), threading.Event(), []
+
+        def holder():
+            with spend.call(0.6):
+                with spend.call(0.6):
+                    holding.set()
+                    woke.wait(10)
+
+        def waiter():
+            holding.wait(10)
+            try:
+                with spend.call(0.6):
+                    outcome.append("started")
+            except mrr.RunAborted:
+                outcome.append("aborted")
+
+        first, second = threading.Thread(target=holder, daemon=True), threading.Thread(target=waiter, daemon=True)
+        first.start()
+        second.start()
+        holding.wait(10)
+        threading.Event().wait(0.2)  # the waiter is now waiting: 1.2 held against a ceiling of 1.0
+        self.assertEqual(outcome, [])
+        spend.stop("the tool list was not empty")
+        second.join(5)  # while the holder still holds its caps: only stop() can be what wakes the waiter now
+        self.assertFalse(second.is_alive(), "the waiting call was not woken when the run was stopped")
+        self.assertEqual(outcome, ["aborted"])
+        woke.set()
+        first.join(10)
+
+    def finishes_within(self, spend, cap, seconds=3):
+        """True when a call of this cap can start and end on `spend` in another thread within the time."""
+        done = threading.Event()
+
+        def worker():
+            with spend.call(cap):
+                done.set()
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        thread.join(seconds)
+        return done.is_set()
+
+    def test_rounding_in_the_sums_never_leaves_a_call_waiting_for_one_that_is_not_running(self):
+        spend = mrr.Spend(0.5)
+        with spend.call(0.1):
+            with spend.call(0.1):
+                with spend.call(0.1):
+                    pass
+        spend.add(0.49999999999999994)  # one step under the ceiling; the three 0.1 holds add and take back with a residue of 2.8e-17
+        self.assertEqual(spend.reserved, 0.0)
+        self.assertTrue(self.finishes_within(spend, 0.1), "a call waited for ever although nothing was running")
+
+    def test_a_cap_too_large_for_floating_point_sums_does_not_poison_the_counter(self):
+        spend = mrr.Spend(1.5e308)
+        with spend.call(1e308):
+            with spend.call(1e308):  # the two holds add up to infinity
+                pass
+        self.assertEqual(spend.reserved, 0.0)
+        self.assertTrue(self.finishes_within(spend, 1e308), "a call waited for ever after the holds overflowed")
 
     def test_the_hold_is_released_when_the_call_ends_however_it_ends(self):
         spend = mrr.Spend(LIMIT)
